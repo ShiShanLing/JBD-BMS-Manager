@@ -1,7 +1,9 @@
 package com.bms.jbdmanager.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -44,6 +46,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.Modifier
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.ui.graphics.Color
@@ -57,6 +60,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.bms.jbdmanager.BmsViewModel
+import com.bms.jbdmanager.R
 import com.bms.jbdmanager.model.BmsBasicInfo
 import com.bms.jbdmanager.model.BmsUiState
 import com.bms.jbdmanager.model.CellSummary
@@ -80,9 +84,6 @@ fun BmsApp(
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
     var showDashboard by rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
-    var previewMode by rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
-    val previewState = remember { demoBmsState() }
-    val displayedState = if (previewMode) previewState else state
 
     LaunchedEffect(state.errorMessage) {
         state.errorMessage?.let {
@@ -92,7 +93,7 @@ fun BmsApp(
     }
 
     LaunchedEffect(state.phase) {
-        if (!previewMode && (state.phase == ConnectionPhase.Idle || state.phase == ConnectionPhase.Error)) {
+        if (state.phase == ConnectionPhase.Idle || state.phase == ConnectionPhase.Error) {
             showDashboard = false
         }
     }
@@ -107,19 +108,15 @@ fun BmsApp(
                 .padding(padding)
                 .statusBarsPadding()
         ) {
-            AppHeader(displayedState, previewMode)
-            if (showDashboard && (previewMode || state.phase == ConnectionPhase.Ready)) {
+            if (showDashboard && state.phase == ConnectionPhase.Ready) {
                 Dashboard(
-                    state = displayedState,
-                    isPreview = previewMode,
-                    onShowDevices = {
-                        previewMode = false
-                        showDashboard = false
-                    },
-                    onClearLogs = if (previewMode) ({}) else viewModel::clearLogs,
+                    state = state,
+                    onShowDevices = { showDashboard = false },
+                    onClearLogs = viewModel::clearLogs,
                     onSubmitPassword = viewModel::submitBluetoothPassword
                 )
             } else {
+                AppHeader(state)
                 ScanPanel(
                     state = state,
                     requestPermissions = requestPermissions,
@@ -128,11 +125,7 @@ fun BmsApp(
                     stopScan = viewModel::stopScan,
                     connect = viewModel::connect,
                     disconnect = viewModel::disconnect,
-                    showDashboard = { showDashboard = true },
-                    showPreview = {
-                        previewMode = true
-                        showDashboard = true
-                    }
+                    showDashboard = { showDashboard = true }
                 )
             }
         }
@@ -140,38 +133,24 @@ fun BmsApp(
 }
 
 @Composable
-private fun AppHeader(state: BmsUiState, isPreview: Boolean = false) {
+private fun AppHeader(state: BmsUiState) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Box(
-            modifier = Modifier
-                .size(34.dp)
-                .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(10.dp)),
-            contentAlignment = Alignment.Center
-        ) {
-            Text("B", color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.Black, fontSize = 18.sp)
-        }
+        Image(
+            painter = painterResource(R.mipmap.ic_launcher_legacy),
+            contentDescription = "JBD BMS 应用图标",
+            modifier = Modifier.size(34.dp)
+        )
         Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) {
             Text("JBD BMS", fontWeight = FontWeight.Bold, fontSize = 17.sp)
             Text("安全只读监控", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 10.sp)
         }
-        if (isPreview) {
-            Surface(color = MaterialTheme.colorScheme.secondary.copy(alpha = 0.15f), shape = CircleShape) {
-                Text(
-                    "演示",
-                    color = MaterialTheme.colorScheme.secondary,
-                    modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp),
-                    fontSize = 10.sp
-                )
-            }
-        } else {
-            StatusBadge(state)
-        }
+        StatusBadge(state)
     }
 }
 
@@ -204,19 +183,12 @@ private fun ScanPanel(
     stopScan: () -> Unit,
     connect: (String) -> Unit,
     disconnect: () -> Unit,
-    showDashboard: () -> Unit,
-    showPreview: () -> Unit
+    showDashboard: () -> Unit
 ) {
     Column(Modifier.fillMaxSize()) {
         Column(Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) {
             Text("连接电池", fontSize = 28.sp, fontWeight = FontWeight.Bold)
-            Spacer(Modifier.height(6.dp))
-            Text(
-                "自动识别嘉佰达蓝牙服务、硬件型号和协议能力。首次连接不会修改任何保护参数。",
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                lineHeight = 20.sp
-            )
-            Spacer(Modifier.height(18.dp))
+            Spacer(Modifier.height(12.dp))
             when {
                 !state.bluetoothSupported -> InfoCard("此设备不支持低功耗蓝牙（BLE）", MaterialTheme.colorScheme.error)
                 !state.permissionsGranted -> PrimaryAction("允许附近设备权限", requestPermissions)
@@ -234,10 +206,6 @@ private fun ScanPanel(
                 state.phase == ConnectionPhase.Disconnecting ->
                     InfoCard("正在断开设备…", MaterialTheme.colorScheme.onSurfaceVariant)
                 else -> PrimaryAction("扫描附近的 BMS", startScan)
-            }
-            Spacer(Modifier.height(10.dp))
-            OutlinedButton(onClick = showPreview, modifier = Modifier.fillMaxWidth()) {
-                Text("预览详情（测试数据）")
             }
         }
 
@@ -430,7 +398,6 @@ private fun ProgressPanel(state: BmsUiState, disconnect: () -> Unit) {
 @Composable
 private fun Dashboard(
     state: BmsUiState,
-    isPreview: Boolean,
     onShowDevices: () -> Unit,
     onClearLogs: () -> Unit,
     onSubmitPassword: (String) -> Boolean
@@ -438,21 +405,6 @@ private fun Dashboard(
     var tab by remember { mutableIntStateOf(0) }
     Column(Modifier.fillMaxSize()) {
         DeviceSummary(state, onShowDevices, onSubmitPassword)
-        if (isPreview) {
-            Surface(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp),
-                color = MaterialTheme.colorScheme.secondaryContainer,
-                shape = RoundedCornerShape(8.dp)
-            ) {
-                Text(
-                    "当前为测试数据预览，不代表真实电池状态",
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp),
-                    color = MaterialTheme.colorScheme.onSecondaryContainer,
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Medium
-                )
-            }
-        }
         TabSelector(tab) { tab = it }
         when (tab) {
             0 -> Overview(state)
@@ -621,6 +573,8 @@ private fun Overview(state: BmsUiState) {
         }
         item {
             val cells = state.cells
+            val nearFull = isNearFull(info, cells)
+            val deltaColor = deltaAlertColor(cells?.deltaMv, nearFull)
             val voltageSummary = if (cells?.millivolts.isNullOrEmpty()) {
                 "--"
             } else {
@@ -636,23 +590,41 @@ private fun Overview(state: BmsUiState) {
                 Metric(
                     "压差/平均电压",
                     voltageSummary,
-                    "单体压差/平均值"
+                    "单体压差/平均值",
+                    deltaColor
                 )
             )
         }
         item {
+            val sohColor = healthAlertColor(info.estimatedSohPercent)
             MetricRow(
                 Metric("循环次数", "${info.cycleCount}", "BMS 记录"),
-                Metric("健康度", info.estimatedSohPercent?.let { format(it, "%") } ?: "--", "估算 SOH")
+                Metric(
+                    "健康度",
+                    info.estimatedSohPercent?.let { format(it, "%") } ?: "--",
+                    "估算 SOH",
+                    sohColor
+                )
             )
         }
         item { TemperatureCard(info) }
-        item { CellsOverviewSection(state.cells, info.balancingMask) }
+        item {
+            CellsOverviewSection(
+                state.cells,
+                info.balancingMask,
+                isNearFull(info, state.cells)
+            )
+        }
         item { Spacer(Modifier.height(4.dp)) }
     }
 }
 
-private data class Metric(val label: String, val value: String, val note: String)
+private data class Metric(
+    val label: String,
+    val value: String,
+    val note: String,
+    val valueColor: Color? = null
+)
 
 @Composable
 private fun MetricRow(left: Metric, right: Metric) {
@@ -676,6 +648,7 @@ private fun MetricCard(metric: Metric, modifier: Modifier = Modifier) {
             Spacer(Modifier.height(4.dp))
             Text(
                 metric.value,
+                color = metric.valueColor ?: MaterialTheme.colorScheme.onSurface,
                 fontWeight = FontWeight.Bold,
                 fontSize = 17.sp,
                 lineHeight = 18.sp,
@@ -744,29 +717,48 @@ private fun SocHero(info: BmsBasicInfo) {
 private fun RuntimeStatusColumn(info: BmsBasicInfo) {
     val protection = protectionText(info.protectionMask)
     val balancing = info.balancingMask != 0L
-    Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+    Column(
+        modifier = Modifier.width(82.dp),
+        horizontalAlignment = Alignment.Start,
+        verticalArrangement = Arrangement.spacedBy(2.dp)
+    ) {
         Text("运行状态", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp, lineHeight = 13.sp)
         CompactStatus("充电 MOS", info.chargeMosEnabled)
         CompactStatus("放电 MOS", info.dischargeMosEnabled)
-        CompactStatus(if (balancing) "均衡中" else "未均衡", balancing, inactiveIsError = false)
-        CompactStatus(if (protection.isEmpty()) "保护正常" else "保护告警", protection.isEmpty())
+        CompactStatus("电池均衡", balancing)
+        CompactStatus("电池保护", protection.isNotEmpty(), dangerWhenActive = true)
     }
 }
 
 @Composable
-private fun CompactStatus(label: String, active: Boolean, inactiveIsError: Boolean = true) {
-    val color = when {
-        active -> MaterialTheme.colorScheme.primary
-        inactiveIsError -> MaterialTheme.colorScheme.error
-        else -> MaterialTheme.colorScheme.onSurfaceVariant
+private fun CompactStatus(
+    label: String,
+    active: Boolean,
+    dangerWhenActive: Boolean = false
+) {
+    val activeColor = if (dangerWhenActive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+    val inactiveColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f)
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(
+            Modifier
+                .size(7.dp)
+                .then(
+                    if (active) {
+                        Modifier.background(activeColor, CircleShape)
+                    } else {
+                        Modifier.border(1.dp, inactiveColor, CircleShape)
+                    }
+                )
+        )
+        Spacer(Modifier.width(5.dp))
+        Text(
+            label,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 11.sp,
+            lineHeight = 13.sp,
+            maxLines = 1
+        )
     }
-    Text(
-        "${if (active) "●" else "○"} $label",
-        color = color,
-        fontSize = 11.sp,
-        lineHeight = 13.sp,
-        maxLines = 1
-    )
 }
 
 @Composable
@@ -808,7 +800,7 @@ private fun TemperatureCard(info: BmsBasicInfo) {
 }
 
 @Composable
-private fun CellsOverviewSection(cells: CellSummary?, balancingMask: Long) {
+private fun CellsOverviewSection(cells: CellSummary?, balancingMask: Long, nearFull: Boolean) {
     if (cells == null) {
         Surface(
             modifier = Modifier.fillMaxWidth(),
@@ -830,7 +822,12 @@ private fun CellsOverviewSection(cells: CellSummary?, balancingMask: Long) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             SmallSummary("最低", cells.minimumMv?.let { "$it mV" } ?: "--", Modifier.weight(1f))
             SmallSummary("最高", cells.maximumMv?.let { "$it mV" } ?: "--", Modifier.weight(1f))
-            SmallSummary("压差", cells.deltaMv?.let { "$it mV" } ?: "--", Modifier.weight(1f))
+            SmallSummary(
+                "压差",
+                cells.deltaMv?.let { "$it mV" } ?: "--",
+                Modifier.weight(1f),
+                deltaAlertColor(cells.deltaMv, nearFull)
+            )
         }
         Spacer(Modifier.height(4.dp))
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -854,13 +851,52 @@ private fun CellsOverviewSection(cells: CellSummary?, balancingMask: Long) {
 }
 
 @Composable
-private fun SmallSummary(label: String, value: String, modifier: Modifier) {
+private fun SmallSummary(label: String, value: String, modifier: Modifier, valueColor: Color? = null) {
     Surface(modifier, color = MaterialTheme.colorScheme.surfaceVariant, shape = RoundedCornerShape(10.dp)) {
         Column(Modifier.padding(horizontal = 7.dp, vertical = 5.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Text(label, fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text(value, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+            Text(
+                value,
+                color = valueColor ?: MaterialTheme.colorScheme.onSurface,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Bold
+            )
         }
     }
+}
+
+private val AlertYellow = Color(0xFFFFC247)
+private val AlertOrange = Color(0xFFFF8A3D)
+
+@Composable
+private fun deltaAlertColor(deltaMv: Int?, nearFull: Boolean): Color? {
+    if (deltaMv == null) return null
+    return if (nearFull) {
+        when {
+            deltaMv < 150 -> null
+            deltaMv < 200 -> AlertYellow
+            deltaMv < 300 -> AlertOrange
+            else -> MaterialTheme.colorScheme.error
+        }
+    } else {
+        when {
+            deltaMv < 30 -> null
+            deltaMv < 80 -> AlertYellow
+            deltaMv < 150 -> AlertOrange
+            else -> MaterialTheme.colorScheme.error
+        }
+    }
+}
+
+private fun isNearFull(info: BmsBasicInfo, cells: CellSummary?): Boolean =
+    info.stateOfChargePercent >= 95 || (cells?.maximumMv ?: 0) >= 3400
+
+@Composable
+private fun healthAlertColor(sohPercent: Double?): Color? = when {
+    sohPercent == null || sohPercent >= 90.0 -> null
+    sohPercent < 75.0 -> MaterialTheme.colorScheme.error
+    sohPercent < 80.0 -> AlertOrange
+    else -> AlertYellow
 }
 
 @Composable
@@ -993,56 +1029,3 @@ private val timeFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:m
 private fun time(millis: Long): String = Instant.ofEpochMilli(millis)
     .atZone(ZoneId.systemDefault())
     .format(timeFormatter)
-
-private fun demoBmsState(): BmsUiState {
-    val now = System.currentTimeMillis()
-    return BmsUiState(
-        permissionsGranted = true,
-        phase = ConnectionPhase.Ready,
-        connectedAddress = "AA:BB:CC:12:34:56",
-        connectedName = "JBD-BMS（测试数据）",
-        modelName = "JBD-SP16S100A",
-        protocolProfile = "JBD BLE 标准通道",
-        detectedProtocol = "JBD DD/77（标准状态帧）",
-        bleChannelDetails = "FFE0 服务 · FFE1 通知/写入特征",
-        chipType = "JBD 只读演示",
-        basicInfo = BmsBasicInfo(
-            totalVoltageV = 52.84,
-            currentA = 8.36,
-            remainingCapacityAh = 78.40,
-            nominalCapacityAh = 100.00,
-            fullChargeCapacityAh = 96.00,
-            stateOfChargePercent = 78,
-            cycleCount = 126,
-            temperaturesC = listOf(28.4, 29.1, 28.7),
-            cellCount = 16,
-            chargeMosEnabled = true,
-            dischargeMosEnabled = true,
-            balancingMask = 1L shl 4,
-            protectionMask = 0,
-            alarmMask = 0,
-            softwareVersion = "V12.3",
-            productionDate = "2025-06-18",
-            humidityPercent = 42,
-            balancingCurrentMa = 68,
-            updatedAtMillis = now
-        ),
-        cells = CellSummary(
-            millivolts = listOf(
-                3302, 3305, 3298, 3301, 3307, 3304, 3299, 3303,
-                3306, 3300, 3302, 3305, 3297, 3301, 3304, 3301
-            ),
-            updatedAtMillis = now
-        ),
-        dataFreshness = DataFreshness.Fresh,
-        communicationReadyAtMillis = now - 12_000,
-        lastValidDataAtMillis = now,
-        lastDataAgeSeconds = 0,
-        logs = listOf(
-            RawLogEntry(now - 2_000, RawLogEntry.Direction.Info, "", "测试模式：已载入完整演示数据"),
-            RawLogEntry(now - 1_500, RawLogEntry.Direction.Tx, "DD A5 03 00 FF FD 77", "读取基本信息"),
-            RawLogEntry(now - 1_000, RawLogEntry.Direction.Rx, "DD 03 00 1B ... 77", "收到合法基本信息响应"),
-            RawLogEntry(now - 500, RawLogEntry.Direction.Info, "", "协议识别结果：JBD DD/77（标准状态帧）")
-        )
-    )
-}

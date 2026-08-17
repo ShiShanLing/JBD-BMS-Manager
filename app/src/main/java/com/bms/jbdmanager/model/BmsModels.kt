@@ -45,7 +45,8 @@ data class ScanDevice(
 
 data class SavedDevice(
     val address: String,
-    val name: String
+    val name: String,
+    val lastSocPercent: Int? = null
 )
 
 enum class ConnectionPhase {

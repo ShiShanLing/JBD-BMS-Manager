@@ -229,6 +229,7 @@ private fun ScanPanel(
                             ),
                             state = state,
                             remembered = true,
+                            lastSocPercent = saved.lastSocPercent,
                             connect = { connect(saved.address) },
                             disconnect = disconnect
                         )
@@ -299,6 +300,7 @@ private fun ConnectionDeviceRow(
     device: ScanDevice,
     state: BmsUiState,
     remembered: Boolean,
+    lastSocPercent: Int? = null,
     connect: () -> Unit,
     disconnect: () -> Unit
 ) {
@@ -337,7 +339,15 @@ private fun ConnectionDeviceRow(
             }
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
-                Text(device.name, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(
+                    buildString {
+                        append(device.name)
+                        if (remembered && lastSocPercent != null) append(" · $lastSocPercent%")
+                    },
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
                 Text(device.address, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(Modifier.size(7.dp).background(statusColor, CircleShape))

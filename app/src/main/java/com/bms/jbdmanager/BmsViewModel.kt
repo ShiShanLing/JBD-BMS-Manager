@@ -300,7 +300,7 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
 
         when (message) {
             is JbdMessage.BasicInfo -> {
-                markDataFresh()
+                markDataFresh(message.value.stateOfChargePercent)
                 val baseLength = 23 + message.value.temperaturesC.size * 2
                 if (frame.data.size > baseLength) {
                     v12ExtensionSeen = true
@@ -398,10 +398,10 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
         }
     }
 
-    private fun markDataFresh() {
+    private fun markDataFresh(lastSocPercent: Int? = null) {
         communicationRecoveryTriggered = false
         reconnectAttempt = 0
-        persistCurrentDevice()
+        persistCurrentDevice(lastSocPercent)
         _uiState.update {
             it.copy(
                 dataFreshness = DataFreshness.Fresh,
@@ -412,26 +412,33 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
         }
     }
 
-    private fun persistCurrentDevice() {
+    private fun persistCurrentDevice(lastSocPercent: Int? = null) {
         val state = _uiState.value
         val address = state.connectedAddress ?: return
         val name = state.connectedName.orEmpty().ifBlank { address }
-        if (state.lastDeviceAddress == address && state.savedDevices.any { it.address == address }) return
+        val existing = state.savedDevices.firstOrNull { it.address == address }
+        val savedSocPercent = lastSocPercent?.coerceIn(0, 100) ?: existing?.lastSocPercent
+        if (
+            state.lastDeviceAddress == address &&
+            existing?.name == name &&
+            existing.lastSocPercent == savedSocPercent
+        ) return
         val savedAddresses = preferences.getStringSet(SAVED_DEVICE_ADDRESSES, emptySet())
             .orEmpty()
             .toMutableSet()
             .apply { add(address) }
-        preferences.edit()
+        val editor = preferences.edit()
             .putString(LAST_DEVICE_ADDRESS, address)
             .putString(LAST_DEVICE_NAME, name)
             .putStringSet(SAVED_DEVICE_ADDRESSES, savedAddresses)
             .putString("$SAVED_DEVICE_NAME_PREFIX$address", name)
-            .apply()
+        savedSocPercent?.let { editor.putInt("$SAVED_DEVICE_SOC_PREFIX$address", it) }
+        editor.apply()
         _uiState.update {
             it.copy(
                 lastDeviceAddress = address,
                 lastDeviceName = name,
-                savedDevices = listOf(SavedDevice(address, name)) +
+                savedDevices = listOf(SavedDevice(address, name, savedSocPercent)) +
                     it.savedDevices.filterNot { saved -> saved.address == address }
             )
         }
@@ -518,7 +525,10 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
                 address = address,
                 name = preferences.getString("$SAVED_DEVICE_NAME_PREFIX$address", null)
                     ?: (if (address == lastAddress) preferences.getString(LAST_DEVICE_NAME, null) else null)
-                    ?: address
+                    ?: address,
+                lastSocPercent = if (preferences.contains("$SAVED_DEVICE_SOC_PREFIX$address")) {
+                    preferences.getInt("$SAVED_DEVICE_SOC_PREFIX$address", 0).coerceIn(0, 100)
+                } else null
             )
         }.sortedByDescending { it.address == lastAddress }
     }
@@ -533,5 +543,6 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
         private val RECONNECT_DELAYS_SECONDS = listOf(2, 5, 10, 30)
         private const val SAVED_DEVICE_ADDRESSES = "saved_device_addresses"
         private const val SAVED_DEVICE_NAME_PREFIX = "saved_device_name_"
+        private const val SAVED_DEVICE_SOC_PREFIX = "saved_device_soc_"
     }
 }

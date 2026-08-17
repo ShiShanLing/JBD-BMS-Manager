@@ -100,8 +100,6 @@ data class BmsUiState(
     val lastDataAgeSeconds: Int? = null,
     val authenticationRequired: Boolean = false,
     val authenticationMessage: String? = null,
-    val sessionChargeAh: Double = 0.0,
-    val sessionDischargeAh: Double = 0.0,
     val logs: List<RawLogEntry> = emptyList(),
     val errorMessage: String? = null
 )

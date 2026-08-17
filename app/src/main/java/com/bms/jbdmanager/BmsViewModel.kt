@@ -1,7 +1,6 @@
 package com.bms.jbdmanager
 
 import android.app.Application
-import android.os.SystemClock
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.bms.jbdmanager.ble.JbdBleListener
@@ -24,7 +23,6 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlin.math.abs
 
 class BmsViewModel(application: Application) : AndroidViewModel(application), JbdBleListener {
     private val preferences = application.getSharedPreferences(PREFERENCES_NAME, Application.MODE_PRIVATE)
@@ -39,8 +37,6 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
 
     private val frameAssembler = JbdFrameAssembler()
     private val bleManager = JbdBleManager(application, this)
-    private var lastCapacitySampleAt: Long? = null
-    private var lastCapacityCurrentA: Double? = null
     private var autoConnectAttempted = false
     private var manualDisconnect = false
     private var reconnectJob: Job? = null
@@ -92,8 +88,6 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
         reconnectAttempt = 0
         _uiState.update { it.copy(errorMessage = null) }
         frameAssembler.clear()
-        lastCapacitySampleAt = null
-        lastCapacityCurrentA = null
         bleManager.connect(address)
     }
 
@@ -187,9 +181,7 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
                 communicationReadyAtMillis = null,
                 lastValidDataAtMillis = null,
                 authenticationRequired = false,
-                authenticationMessage = null,
-                sessionChargeAh = 0.0,
-                sessionDischargeAh = 0.0
+                authenticationMessage = null
             )
         }
     }
@@ -225,8 +217,6 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
         val shouldReconnect = !manualDisconnect && address != null && _uiState.value.bluetoothEnabled &&
             _uiState.value.permissionsGranted
         frameAssembler.clear()
-        lastCapacitySampleAt = null
-        lastCapacityCurrentA = null
         _uiState.update {
             it.copy(
                 phase = if (shouldReconnect) ConnectionPhase.Reconnecting else ConnectionPhase.Idle,
@@ -311,7 +301,6 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
         when (message) {
             is JbdMessage.BasicInfo -> {
                 markDataFresh()
-                integrateCapacity(message.value.currentA, SystemClock.elapsedRealtime())
                 val baseLength = 23 + message.value.temperaturesC.size * 2
                 if (frame.data.size > baseLength) {
                     v12ExtensionSeen = true
@@ -384,21 +373,6 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
             _uiState.update {
                 it.copy(authenticationRequired = false, authenticationMessage = "只读身份认证成功")
             }
-        }
-    }
-
-    private fun integrateCapacity(currentA: Double, now: Long) {
-        val previous = lastCapacitySampleAt
-        val previousCurrent = lastCapacityCurrentA
-        lastCapacitySampleAt = now
-        lastCapacityCurrentA = currentA
-        if (previous == null || previousCurrent == null) return
-        val elapsedHours = ((now - previous).coerceIn(0, 5_000)) / 3_600_000.0
-        val averageCurrent = (previousCurrent + currentA) / 2.0
-        val amount = abs(averageCurrent) * elapsedHours
-        _uiState.update {
-            if (averageCurrent >= 0) it.copy(sessionChargeAh = it.sessionChargeAh + amount)
-            else it.copy(sessionDischargeAh = it.sessionDischargeAh + amount)
         }
     }
 

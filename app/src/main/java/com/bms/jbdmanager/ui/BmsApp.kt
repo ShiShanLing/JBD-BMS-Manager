@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -17,9 +18,6 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
@@ -47,6 +45,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -81,6 +80,9 @@ fun BmsApp(
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
     var showDashboard by rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
+    var previewMode by rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
+    val previewState = remember { demoBmsState() }
+    val displayedState = if (previewMode) previewState else state
 
     LaunchedEffect(state.errorMessage) {
         state.errorMessage?.let {
@@ -90,7 +92,7 @@ fun BmsApp(
     }
 
     LaunchedEffect(state.phase) {
-        if (state.phase == ConnectionPhase.Idle || state.phase == ConnectionPhase.Error) {
+        if (!previewMode && (state.phase == ConnectionPhase.Idle || state.phase == ConnectionPhase.Error)) {
             showDashboard = false
         }
     }
@@ -105,12 +107,16 @@ fun BmsApp(
                 .padding(padding)
                 .statusBarsPadding()
         ) {
-            AppHeader(state)
-            if (showDashboard && state.phase == ConnectionPhase.Ready) {
+            AppHeader(displayedState, previewMode)
+            if (showDashboard && (previewMode || state.phase == ConnectionPhase.Ready)) {
                 Dashboard(
-                    state = state,
-                    onShowDevices = { showDashboard = false },
-                    onClearLogs = viewModel::clearLogs,
+                    state = displayedState,
+                    isPreview = previewMode,
+                    onShowDevices = {
+                        previewMode = false
+                        showDashboard = false
+                    },
+                    onClearLogs = if (previewMode) ({}) else viewModel::clearLogs,
                     onSubmitPassword = viewModel::submitBluetoothPassword
                 )
             } else {
@@ -122,7 +128,11 @@ fun BmsApp(
                     stopScan = viewModel::stopScan,
                     connect = viewModel::connect,
                     disconnect = viewModel::disconnect,
-                    showDashboard = { showDashboard = true }
+                    showDashboard = { showDashboard = true },
+                    showPreview = {
+                        previewMode = true
+                        showDashboard = true
+                    }
                 )
             }
         }
@@ -130,27 +140,38 @@ fun BmsApp(
 }
 
 @Composable
-private fun AppHeader(state: BmsUiState) {
+private fun AppHeader(state: BmsUiState, isPreview: Boolean = false) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 14.dp),
+            .padding(horizontal = 16.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(
             modifier = Modifier
-                .size(42.dp)
-                .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(12.dp)),
+                .size(34.dp)
+                .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(10.dp)),
             contentAlignment = Alignment.Center
         ) {
-            Text("B", color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.Black, fontSize = 22.sp)
+            Text("B", color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.Black, fontSize = 18.sp)
         }
-        Spacer(Modifier.width(12.dp))
+        Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) {
-            Text("JBD BMS", fontWeight = FontWeight.Bold, fontSize = 20.sp)
-            Text("安全只读监控", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
+            Text("JBD BMS", fontWeight = FontWeight.Bold, fontSize = 17.sp)
+            Text("安全只读监控", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 10.sp)
         }
-        StatusBadge(state)
+        if (isPreview) {
+            Surface(color = MaterialTheme.colorScheme.secondary.copy(alpha = 0.15f), shape = CircleShape) {
+                Text(
+                    "演示",
+                    color = MaterialTheme.colorScheme.secondary,
+                    modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp),
+                    fontSize = 10.sp
+                )
+            }
+        } else {
+            StatusBadge(state)
+        }
     }
 }
 
@@ -170,7 +191,7 @@ private fun StatusBadge(state: BmsUiState) {
         ConnectionPhase.Idle -> "未连接" to MaterialTheme.colorScheme.onSurfaceVariant
     }
     Surface(color = color.copy(alpha = 0.15f), shape = CircleShape) {
-        Text(text, color = color, modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp), fontSize = 12.sp)
+        Text(text, color = color, modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp), fontSize = 10.sp)
     }
 }
 
@@ -183,7 +204,8 @@ private fun ScanPanel(
     stopScan: () -> Unit,
     connect: (String) -> Unit,
     disconnect: () -> Unit,
-    showDashboard: () -> Unit
+    showDashboard: () -> Unit,
+    showPreview: () -> Unit
 ) {
     Column(Modifier.fillMaxSize()) {
         Column(Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) {
@@ -212,6 +234,10 @@ private fun ScanPanel(
                 state.phase == ConnectionPhase.Disconnecting ->
                     InfoCard("正在断开设备…", MaterialTheme.colorScheme.onSurfaceVariant)
                 else -> PrimaryAction("扫描附近的 BMS", startScan)
+            }
+            Spacer(Modifier.height(10.dp))
+            OutlinedButton(onClick = showPreview, modifier = Modifier.fillMaxWidth()) {
+                Text("预览详情（测试数据）")
             }
         }
 
@@ -404,6 +430,7 @@ private fun ProgressPanel(state: BmsUiState, disconnect: () -> Unit) {
 @Composable
 private fun Dashboard(
     state: BmsUiState,
+    isPreview: Boolean,
     onShowDevices: () -> Unit,
     onClearLogs: () -> Unit,
     onSubmitPassword: (String) -> Boolean
@@ -411,10 +438,24 @@ private fun Dashboard(
     var tab by remember { mutableIntStateOf(0) }
     Column(Modifier.fillMaxSize()) {
         DeviceSummary(state, onShowDevices, onSubmitPassword)
+        if (isPreview) {
+            Surface(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp),
+                color = MaterialTheme.colorScheme.secondaryContainer,
+                shape = RoundedCornerShape(8.dp)
+            ) {
+                Text(
+                    "当前为测试数据预览，不代表真实电池状态",
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp),
+                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Medium
+                )
+            }
+        }
         TabSelector(tab) { tab = it }
         when (tab) {
             0 -> Overview(state)
-            1 -> CellsPanel(state.cells, state.basicInfo?.balancingMask ?: 0)
             else -> LogsPanel(state.logs, onClearLogs)
         }
     }
@@ -426,9 +467,9 @@ private fun DeviceSummary(state: BmsUiState, onShowDevices: () -> Unit, onSubmit
     LaunchedEffect(state.authenticationRequired) {
         if (state.authenticationRequired) showSettings = true
     }
-    Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
-            Text("电池详情", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+            Text("电池详情", fontWeight = FontWeight.Bold, fontSize = 16.sp)
             Text(
                 buildString {
                     append(state.connectedName ?: "已连接 BMS")
@@ -444,13 +485,21 @@ private fun DeviceSummary(state: BmsUiState, onShowDevices: () -> Unit, onSubmit
                     }
                 },
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 12.sp,
+                fontSize = 10.sp,
                 maxLines = 1
             )
         }
-        OutlinedButton(onClick = onShowDevices) { Text("设备") }
-        Spacer(Modifier.width(8.dp))
-        OutlinedButton(onClick = { showSettings = true }) { Text("设置") }
+        OutlinedButton(
+            onClick = onShowDevices,
+            modifier = Modifier.height(34.dp),
+            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp)
+        ) { Text("设备", fontSize = 11.sp) }
+        Spacer(Modifier.width(6.dp))
+        OutlinedButton(
+            onClick = { showSettings = true },
+            modifier = Modifier.height(34.dp),
+            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp)
+        ) { Text("设置", fontSize = 11.sp) }
     }
     if (showSettings) {
         DeviceSettingsDialog(
@@ -523,17 +572,17 @@ private fun DialogInfoRow(label: String, value: String) {
 
 @Composable
 private fun TabSelector(selected: Int, onSelect: (Int) -> Unit) {
-    val labels = listOf("概览", "单体", "通信日志")
-    Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    val labels = listOf("概览", "通信日志")
+    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         labels.forEachIndexed { index, label ->
             val active = index == selected
             Surface(
                 modifier = Modifier.weight(1f).clickable { onSelect(index) },
                 color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
                 contentColor = if (active) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
-                shape = RoundedCornerShape(12.dp)
+                shape = RoundedCornerShape(10.dp)
             ) {
-                Text(label, textAlign = androidx.compose.ui.text.style.TextAlign.Center, modifier = Modifier.padding(vertical = 10.dp), fontSize = 13.sp)
+                Text(label, textAlign = androidx.compose.ui.text.style.TextAlign.Center, modifier = Modifier.padding(vertical = 7.dp), fontSize = 11.sp)
             }
         }
     }
@@ -547,8 +596,8 @@ private fun Overview(state: BmsUiState) {
         return
     }
     LazyColumn(
-        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
         item { SocHero(info) }
         item {
@@ -571,9 +620,24 @@ private fun Overview(state: BmsUiState) {
             )
         }
         item {
+            val cells = state.cells
+            val voltageSummary = if (cells?.millivolts.isNullOrEmpty()) {
+                "--"
+            } else {
+                val averageVoltage = cells!!.millivolts.average() / 1000.0
+                "${cells.deltaMv ?: 0} mV/${"%.3f".format(Locale.US, averageVoltage)} V"
+            }
             MetricRow(
-                Metric("当前剩余容量", format(info.remainingCapacityAh, "Ah"), "剩余安时"),
-                Metric("电池总容量", format(info.nominalCapacityAh, "Ah"), "总安时（Ah）")
+                Metric(
+                    "剩余容量/总容量",
+                    "${compactNumber(info.remainingCapacityAh)}/${compactNumber(info.nominalCapacityAh)} Ah",
+                    "剩余/总安时"
+                ),
+                Metric(
+                    "压差/平均电压",
+                    voltageSummary,
+                    "单体压差/平均值"
+                )
             )
         }
         item {
@@ -582,15 +646,9 @@ private fun Overview(state: BmsUiState) {
                 Metric("健康度", info.estimatedSohPercent?.let { format(it, "%") } ?: "--", "估算 SOH")
             )
         }
-        item {
-            MetricRow(
-                Metric("本次充入", format(state.sessionChargeAh, "Ah", 3), "App 统计"),
-                Metric("本次放出", format(state.sessionDischargeAh, "Ah", 3), "App 统计")
-            )
-        }
         item { TemperatureCard(info) }
-        item { MosAndProtectionCard(info) }
-        item { Spacer(Modifier.height(12.dp)) }
+        item { CellsOverviewSection(state.cells, info.balancingMask) }
+        item { Spacer(Modifier.height(4.dp)) }
     }
 }
 
@@ -598,76 +656,150 @@ private data class Metric(val label: String, val value: String, val note: String
 
 @Composable
 private fun MetricRow(left: Metric, right: Metric) {
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        MetricCard(left, Modifier.weight(1f))
-        MetricCard(right, Modifier.weight(1f))
+    Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        MetricCard(left, Modifier.weight(1f).fillMaxHeight())
+        MetricCard(right, Modifier.weight(1f).fillMaxHeight())
     }
 }
 
 @Composable
 private fun MetricCard(metric: Metric, modifier: Modifier = Modifier) {
-    Card(modifier, colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), shape = RoundedCornerShape(18.dp)) {
-        Column(Modifier.padding(16.dp)) {
-            Text(metric.label, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
-            Spacer(Modifier.height(5.dp))
-            Text(metric.value, fontWeight = FontWeight.Bold, fontSize = 22.sp)
-            Text(metric.note, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f), fontSize = 10.sp)
+    Card(modifier, colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), shape = RoundedCornerShape(13.dp)) {
+        Column(Modifier.padding(horizontal = 11.dp, vertical = 6.dp)) {
+            Text(
+                metric.label,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 12.sp,
+                lineHeight = 13.sp,
+                maxLines = 1
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                metric.value,
+                fontWeight = FontWeight.Bold,
+                fontSize = 17.sp,
+                lineHeight = 18.sp,
+                maxLines = 1
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                metric.note,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
+                fontSize = 10.sp,
+                lineHeight = 11.sp,
+                maxLines = 1
+            )
         }
     }
 }
 
 @Composable
 private fun SocHero(info: BmsBasicInfo) {
+    val batteryState = when {
+        info.currentA > 0.05 -> "正在充电"
+        info.currentA < -0.05 -> "正在放电"
+        else -> "静置"
+    }
+    val batteryStateColor = when {
+        info.currentA > 0.05 -> MaterialTheme.colorScheme.primary
+        info.currentA < -0.05 -> MaterialTheme.colorScheme.secondary
+        else -> MaterialTheme.colorScheme.onSurface
+    }
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.72f)),
-        shape = RoundedCornerShape(22.dp)
+        shape = RoundedCornerShape(16.dp)
     ) {
-        Row(Modifier.fillMaxWidth().padding(20.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(112.dp), contentAlignment = Alignment.Center) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(76.dp), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator(
                     progress = { info.stateOfChargePercent / 100f },
                     modifier = Modifier.fillMaxSize(),
-                    strokeWidth = 10.dp,
+                    strokeWidth = 7.dp,
                     trackColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.4f)
                 )
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("${info.stateOfChargePercent}%", fontWeight = FontWeight.Black, fontSize = 27.sp)
-                    Text("SOC", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("${info.stateOfChargePercent}%", fontWeight = FontWeight.Black, fontSize = 21.sp)
+                    Text("SOC", fontSize = 12.sp, lineHeight = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
-            Spacer(Modifier.width(20.dp))
-            Column {
-                Text("电池状态", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
+            Spacer(Modifier.width(14.dp))
+            Column(Modifier.weight(1f)) {
+                Text("电池状态", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
                 Text(
-                    when {
-                        info.currentA > 0.05 -> "正在充电"
-                        info.currentA < -0.05 -> "正在放电"
-                        else -> "静置"
-                    },
+                    batteryState,
+                    color = batteryStateColor,
                     fontWeight = FontWeight.Bold,
-                    fontSize = 24.sp
+                    fontSize = 19.sp
                 )
-                Spacer(Modifier.height(5.dp))
+                Spacer(Modifier.height(2.dp))
                 Text("${info.cellCount} 串电池", fontSize = 12.sp)
-                info.productionDate?.let { Text("生产日期 $it", fontSize = 12.sp) }
+                info.productionDate?.let { Text("生产日期 $it", fontSize = 11.sp) }
             }
+            RuntimeStatusColumn(info)
         }
     }
 }
 
 @Composable
+private fun RuntimeStatusColumn(info: BmsBasicInfo) {
+    val protection = protectionText(info.protectionMask)
+    val balancing = info.balancingMask != 0L
+    Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text("运行状态", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp, lineHeight = 13.sp)
+        CompactStatus("充电 MOS", info.chargeMosEnabled)
+        CompactStatus("放电 MOS", info.dischargeMosEnabled)
+        CompactStatus(if (balancing) "均衡中" else "未均衡", balancing, inactiveIsError = false)
+        CompactStatus(if (protection.isEmpty()) "保护正常" else "保护告警", protection.isEmpty())
+    }
+}
+
+@Composable
+private fun CompactStatus(label: String, active: Boolean, inactiveIsError: Boolean = true) {
+    val color = when {
+        active -> MaterialTheme.colorScheme.primary
+        inactiveIsError -> MaterialTheme.colorScheme.error
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    Text(
+        "${if (active) "●" else "○"} $label",
+        color = color,
+        fontSize = 11.sp,
+        lineHeight = 13.sp,
+        maxLines = 1
+    )
+}
+
+@Composable
 private fun TemperatureCard(info: BmsBasicInfo) {
-    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), shape = RoundedCornerShape(18.dp)) {
-        Column(Modifier.padding(16.dp)) {
-            Text("温度探头", fontWeight = FontWeight.SemiBold)
-            Spacer(Modifier.height(10.dp))
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), shape = RoundedCornerShape(13.dp)) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 11.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Text("温度探头", fontWeight = FontWeight.SemiBold, fontSize = 11.sp, maxLines = 1)
             if (info.temperaturesC.isEmpty()) {
-                Text("未返回温度数据", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(
+                    "未返回温度数据",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 10.sp,
+                    modifier = Modifier.weight(1f)
+                )
             } else {
                 info.temperaturesC.forEachIndexed { index, temperature ->
-                    Row(Modifier.fillMaxWidth().padding(vertical = 5.dp)) {
-                        Text("温度 ${index + 1}", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
-                        Text(format(temperature, "℃"), fontWeight = FontWeight.Medium)
+                    Surface(
+                        modifier = Modifier.weight(1f),
+                        color = MaterialTheme.colorScheme.surfaceVariant,
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Row(
+                            Modifier.padding(horizontal = 7.dp, vertical = 5.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("T${index + 1}", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 9.sp)
+                            Text(format(temperature, "℃", 1), fontWeight = FontWeight.Medium, fontSize = 11.sp)
+                        }
                     }
                 }
             }
@@ -676,62 +808,46 @@ private fun TemperatureCard(info: BmsBasicInfo) {
 }
 
 @Composable
-private fun MosAndProtectionCard(info: BmsBasicInfo) {
-    val protection = protectionText(info.protectionMask)
-    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), shape = RoundedCornerShape(18.dp)) {
-        Column(Modifier.padding(16.dp)) {
-            Text("运行状态", fontWeight = FontWeight.SemiBold)
-            Spacer(Modifier.height(10.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Flag("充电 MOS", info.chargeMosEnabled)
-                Flag("放电 MOS", info.dischargeMosEnabled)
-                Flag("保护正常", info.protectionMask == 0)
-            }
-            Spacer(Modifier.height(12.dp))
+private fun CellsOverviewSection(cells: CellSummary?, balancingMask: Long) {
+    if (cells == null) {
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            color = MaterialTheme.colorScheme.surface,
+            shape = RoundedCornerShape(13.dp)
+        ) {
             Text(
-                if (protection.isEmpty()) "当前无保护告警" else protection.joinToString("、"),
-                color = if (protection.isEmpty()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
-                fontSize = 13.sp
+                "正在等待单体电压…",
+                modifier = Modifier.padding(12.dp),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 11.sp
             )
         }
-    }
-}
-
-@Composable
-private fun Flag(label: String, active: Boolean) {
-    Surface(
-        color = if (active) MaterialTheme.colorScheme.primary.copy(alpha = 0.14f) else MaterialTheme.colorScheme.error.copy(alpha = 0.12f),
-        shape = CircleShape
-    ) {
-        Text(
-            "${if (active) "●" else "○"} $label",
-            color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
-            modifier = Modifier.padding(horizontal = 9.dp, vertical = 6.dp),
-            fontSize = 11.sp
-        )
-    }
-}
-
-@Composable
-private fun CellsPanel(cells: CellSummary?, balancingMask: Long) {
-    if (cells == null) {
-        EmptyReading("正在等待单体电压…")
         return
     }
-    Column(Modifier.fillMaxSize()) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(Modifier.fillMaxWidth()) {
+        Text("单体电压", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+        Spacer(Modifier.height(4.dp))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             SmallSummary("最低", cells.minimumMv?.let { "$it mV" } ?: "--", Modifier.weight(1f))
             SmallSummary("最高", cells.maximumMv?.let { "$it mV" } ?: "--", Modifier.weight(1f))
             SmallSummary("压差", cells.deltaMv?.let { "$it mV" } ?: "--", Modifier.weight(1f))
         }
-        LazyVerticalGrid(
-            columns = GridCells.Fixed(2),
-            contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            itemsIndexed(cells.millivolts) { index, mv ->
-                CellCard(index, mv, balancingMask and (1L shl index) != 0L, cells.minimumMv, cells.maximumMv)
+        Spacer(Modifier.height(4.dp))
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            cells.millivolts.withIndex().chunked(5).forEach { rowCells ->
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    rowCells.forEach { (index, mv) ->
+                        CellCard(
+                            index = index,
+                            mv = mv,
+                            balancing = balancingMask and (1L shl index) != 0L,
+                            min = cells.minimumMv,
+                            max = cells.maximumMv,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                    repeat(5 - rowCells.size) { Spacer(Modifier.weight(1f)) }
+                }
             }
         }
     }
@@ -739,8 +855,8 @@ private fun CellsPanel(cells: CellSummary?, balancingMask: Long) {
 
 @Composable
 private fun SmallSummary(label: String, value: String, modifier: Modifier) {
-    Surface(modifier, color = MaterialTheme.colorScheme.surfaceVariant, shape = RoundedCornerShape(12.dp)) {
-        Column(Modifier.padding(10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+    Surface(modifier, color = MaterialTheme.colorScheme.surfaceVariant, shape = RoundedCornerShape(10.dp)) {
+        Column(Modifier.padding(horizontal = 7.dp, vertical = 5.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Text(label, fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text(value, fontSize = 13.sp, fontWeight = FontWeight.Bold)
         }
@@ -748,19 +864,35 @@ private fun SmallSummary(label: String, value: String, modifier: Modifier) {
 }
 
 @Composable
-private fun CellCard(index: Int, mv: Int, balancing: Boolean, min: Int?, max: Int?) {
+private fun CellCard(index: Int, mv: Int, balancing: Boolean, min: Int?, max: Int?, modifier: Modifier = Modifier) {
     val accent = when (mv) {
         min -> MaterialTheme.colorScheme.secondary
         max -> MaterialTheme.colorScheme.primary
         else -> MaterialTheme.colorScheme.onSurface
     }
-    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), shape = RoundedCornerShape(15.dp)) {
-        Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text("单体 ${index + 1}", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
-                Text("%.3f V".format(Locale.US, mv / 1000.0), color = accent, fontWeight = FontWeight.Bold, fontSize = 19.sp)
+    Card(modifier, colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), shape = RoundedCornerShape(10.dp)) {
+        Box(Modifier.fillMaxWidth().padding(horizontal = 3.dp, vertical = 6.dp)) {
+            Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
+                Text("单体 ${index + 1}", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 9.sp, lineHeight = 10.sp)
+                Text(
+                    "%.3f V".format(Locale.US, mv / 1000.0),
+                    color = accent,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 14.sp,
+                    lineHeight = 16.sp,
+                    maxLines = 1
+                )
             }
-            if (balancing) Text("均衡", color = MaterialTheme.colorScheme.primary, fontSize = 10.sp)
+            if (balancing) {
+                Text(
+                    "均衡",
+                    modifier = Modifier.align(Alignment.TopStart),
+                    color = Color(0xFFD0A8FF),
+                    fontSize = 7.sp,
+                    lineHeight = 8.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
         }
     }
 }
@@ -853,8 +985,64 @@ private fun protectionText(mask: Int): List<String> {
 private fun format(value: Double, unit: String, decimals: Int = 2): String =
     "%.${decimals}f %s".format(Locale.US, value, unit)
 
+private fun compactNumber(value: Double, decimals: Int = 2): String =
+    "%.${decimals}f".format(Locale.US, value).trimEnd('0').trimEnd('.')
+
 private val timeFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm:ss.SSS")
 
 private fun time(millis: Long): String = Instant.ofEpochMilli(millis)
     .atZone(ZoneId.systemDefault())
     .format(timeFormatter)
+
+private fun demoBmsState(): BmsUiState {
+    val now = System.currentTimeMillis()
+    return BmsUiState(
+        permissionsGranted = true,
+        phase = ConnectionPhase.Ready,
+        connectedAddress = "AA:BB:CC:12:34:56",
+        connectedName = "JBD-BMS（测试数据）",
+        modelName = "JBD-SP16S100A",
+        protocolProfile = "JBD BLE 标准通道",
+        detectedProtocol = "JBD DD/77（标准状态帧）",
+        bleChannelDetails = "FFE0 服务 · FFE1 通知/写入特征",
+        chipType = "JBD 只读演示",
+        basicInfo = BmsBasicInfo(
+            totalVoltageV = 52.84,
+            currentA = 8.36,
+            remainingCapacityAh = 78.40,
+            nominalCapacityAh = 100.00,
+            fullChargeCapacityAh = 96.00,
+            stateOfChargePercent = 78,
+            cycleCount = 126,
+            temperaturesC = listOf(28.4, 29.1, 28.7),
+            cellCount = 16,
+            chargeMosEnabled = true,
+            dischargeMosEnabled = true,
+            balancingMask = 1L shl 4,
+            protectionMask = 0,
+            alarmMask = 0,
+            softwareVersion = "V12.3",
+            productionDate = "2025-06-18",
+            humidityPercent = 42,
+            balancingCurrentMa = 68,
+            updatedAtMillis = now
+        ),
+        cells = CellSummary(
+            millivolts = listOf(
+                3302, 3305, 3298, 3301, 3307, 3304, 3299, 3303,
+                3306, 3300, 3302, 3305, 3297, 3301, 3304, 3301
+            ),
+            updatedAtMillis = now
+        ),
+        dataFreshness = DataFreshness.Fresh,
+        communicationReadyAtMillis = now - 12_000,
+        lastValidDataAtMillis = now,
+        lastDataAgeSeconds = 0,
+        logs = listOf(
+            RawLogEntry(now - 2_000, RawLogEntry.Direction.Info, "", "测试模式：已载入完整演示数据"),
+            RawLogEntry(now - 1_500, RawLogEntry.Direction.Tx, "DD A5 03 00 FF FD 77", "读取基本信息"),
+            RawLogEntry(now - 1_000, RawLogEntry.Direction.Rx, "DD 03 00 1B ... 77", "收到合法基本信息响应"),
+            RawLogEntry(now - 500, RawLogEntry.Direction.Info, "", "协议识别结果：JBD DD/77（标准状态帧）")
+        )
+    )
+}

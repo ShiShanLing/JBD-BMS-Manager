@@ -1,11 +1,14 @@
 package com.bms.jbdmanager
 
 import android.app.Application
+import android.os.SystemClock
 import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
 import com.bms.jbdmanager.ble.JbdBleListener
 import com.bms.jbdmanager.ble.JbdBleManager
 import com.bms.jbdmanager.model.BmsUiState
 import com.bms.jbdmanager.model.ConnectionPhase
+import com.bms.jbdmanager.model.DataFreshness
 import com.bms.jbdmanager.model.RawLogEntry
 import com.bms.jbdmanager.model.ScanDevice
 import com.bms.jbdmanager.model.SavedDevice
@@ -17,6 +20,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import kotlin.math.abs
 
 class BmsViewModel(application: Application) : AndroidViewModel(application), JbdBleListener {
@@ -33,7 +40,24 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
     private val frameAssembler = JbdFrameAssembler()
     private val bleManager = JbdBleManager(application, this)
     private var lastCapacitySampleAt: Long? = null
+    private var lastCapacityCurrentA: Double? = null
     private var autoConnectAttempted = false
+    private var manualDisconnect = false
+    private var reconnectJob: Job? = null
+    private var reconnectAttempt = 0
+    private var communicationRecoveryTriggered = false
+    private var bluetoothPassword: String? = null
+    private var bluetoothPasswordAddress: String? = null
+    private var passwordAttempted = false
+
+    init {
+        viewModelScope.launch {
+            while (isActive) {
+                delay(1_000)
+                updateDataFreshness()
+            }
+        }
+    }
 
     fun setPermissionsGranted(granted: Boolean) {
         _uiState.update { it.copy(permissionsGranted = granted) }
@@ -47,6 +71,8 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
             onError("请先允许附近设备权限")
             return
         }
+        manualDisconnect = true
+        cancelReconnect()
         _uiState.update { it.copy(errorMessage = null, devices = emptyList()) }
         bleManager.startScan()
     }
@@ -55,15 +81,44 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
 
     fun connect(address: String) {
         autoConnectAttempted = true
+        manualDisconnect = false
+        cancelReconnect()
+        reconnectAttempt = 0
         _uiState.update { it.copy(errorMessage = null) }
         frameAssembler.clear()
         lastCapacitySampleAt = null
+        lastCapacityCurrentA = null
         bleManager.connect(address)
     }
 
     fun disconnect() {
+        manualDisconnect = true
+        cancelReconnect()
+        if (_uiState.value.phase == ConnectionPhase.Reconnecting) {
+            _uiState.update {
+                it.copy(
+                    phase = ConnectionPhase.Idle,
+                    connectedAddress = null,
+                    reconnectAttempt = 0,
+                    reconnectInSeconds = null
+                )
+            }
+            return
+        }
         _uiState.update { it.copy(phase = ConnectionPhase.Disconnecting) }
         bleManager.disconnect()
+    }
+
+    fun submitBluetoothPassword(password: String): Boolean {
+        if (password.length != 6 || password.any { !it.isDigit() }) {
+            onError("蓝牙读取密码必须是6位数字")
+            return false
+        }
+        bluetoothPassword = password
+        bluetoothPasswordAddress = _uiState.value.connectedAddress
+        passwordAttempted = true
+        _uiState.update { it.copy(authenticationMessage = "正在进行只读身份认证…") }
+        return bleManager.sendAuthenticationPassword(password)
     }
 
     fun clearLogs() = _uiState.update { it.copy(logs = emptyList()) }
@@ -77,7 +132,14 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
 
     override fun onScanStarted() {
         addLog(RawLogEntry.Direction.Info, "", "开始扫描附近 BLE 设备")
-        _uiState.update { it.copy(phase = ConnectionPhase.Scanning, errorMessage = null) }
+        _uiState.update {
+            it.copy(
+                phase = ConnectionPhase.Scanning,
+                connectedAddress = null,
+                connectedName = null,
+                errorMessage = null
+            )
+        }
     }
 
     override fun onScanResult(devices: List<ScanDevice>) {
@@ -91,6 +153,10 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
     }
 
     override fun onConnecting(address: String, name: String) {
+        if (bluetoothPasswordAddress != null && bluetoothPasswordAddress != address) {
+            bluetoothPassword = null
+            bluetoothPasswordAddress = null
+        }
         addLog(RawLogEntry.Direction.Info, "", "正在连接 $name ($address)")
         _uiState.update {
             it.copy(
@@ -102,6 +168,12 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
                 chipType = null,
                 basicInfo = null,
                 cells = null,
+                reconnectInSeconds = null,
+                dataFreshness = DataFreshness.Waiting,
+                communicationReadyAtMillis = null,
+                lastValidDataAtMillis = null,
+                authenticationRequired = false,
+                authenticationMessage = null,
                 sessionChargeAh = 0.0,
                 sessionDischargeAh = 0.0
             )
@@ -114,47 +186,40 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
     }
 
     override fun onReady(profile: String) {
-        val address = _uiState.value.connectedAddress
-        val name = _uiState.value.connectedName
-        address?.let {
-            val savedAddresses = preferences.getStringSet(SAVED_DEVICE_ADDRESSES, emptySet())
-                .orEmpty()
-                .toMutableSet()
-                .apply { add(it) }
-            preferences.edit()
-                .putString(LAST_DEVICE_ADDRESS, it)
-                .putString(LAST_DEVICE_NAME, name)
-                .putStringSet(SAVED_DEVICE_ADDRESSES, savedAddresses)
-                .putString("$SAVED_DEVICE_NAME_PREFIX$it", name)
-                .apply()
-        }
+        communicationRecoveryTriggered = false
+        passwordAttempted = false
         _uiState.update {
             it.copy(
                 phase = ConnectionPhase.Ready,
                 protocolProfile = profile,
                 errorMessage = null,
-                lastDeviceAddress = address ?: it.lastDeviceAddress,
-                lastDeviceName = name ?: it.lastDeviceName,
-                savedDevices = if (address == null) it.savedDevices else {
-                    listOf(SavedDevice(address, name.orEmpty().ifBlank { address })) +
-                        it.savedDevices.filterNot { saved -> saved.address == address }
-                }
+                communicationReadyAtMillis = System.currentTimeMillis(),
+                reconnectInSeconds = null
             )
         }
         addLog(RawLogEntry.Direction.Info, "", "通信就绪：$profile")
     }
 
     override fun onDisconnected(reason: String?) {
+        val address = _uiState.value.connectedAddress
+        val name = _uiState.value.connectedName
+        val shouldReconnect = !manualDisconnect && address != null && _uiState.value.bluetoothEnabled &&
+            _uiState.value.permissionsGranted
         frameAssembler.clear()
         lastCapacitySampleAt = null
+        lastCapacityCurrentA = null
         _uiState.update {
             it.copy(
-                phase = ConnectionPhase.Idle,
-                connectedAddress = null,
+                phase = if (shouldReconnect) ConnectionPhase.Reconnecting else ConnectionPhase.Idle,
+                connectedAddress = if (shouldReconnect) address else null,
+                connectedName = if (shouldReconnect) name else it.connectedName,
+                dataFreshness = DataFreshness.Stale,
                 errorMessage = reason
             )
         }
         addLog(RawLogEntry.Direction.Info, "", reason?.let { "连接断开：$it" } ?: "连接已断开")
+        if (shouldReconnect) address?.let(::scheduleReconnect)
+        manualDisconnect = false
     }
 
     override fun onPacketSent(packet: ByteArray, note: String) {
@@ -162,6 +227,13 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
     }
 
     override fun onNotification(bytes: ByteArray) {
+        if (bytes.size >= 2 && bytes[0].toInt() and 0xFF == 0xFF && bytes[1].toInt() and 0xFF == 0xAA) {
+            addLog(RawLogEntry.Direction.Rx, bytes.toHex(), "检测到 JBD 新版 FF AA 认证报文")
+            _uiState.update {
+                it.copy(protocolProfile = "JBD 新版认证协议（FF AA）")
+            }
+            return
+        }
         val frames = frameAssembler.append(bytes)
         if (frames.isEmpty() && bytes.firstOrNull()?.toInt()?.and(0xFF) != 0xDD) {
             addLog(RawLogEntry.Direction.Rx, bytes.toHex(), "非标准通知数据")
@@ -174,12 +246,43 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
         addLog(RawLogEntry.Direction.Error, "", message)
     }
 
+    override fun onCommandTimeout(command: Int, note: String) {
+        addLog(RawLogEntry.Direction.Error, "", note)
+        if (command == JbdProtocol.BASIC_INFO || command == JbdProtocol.CELL_VOLTAGES) {
+            _uiState.update { state ->
+                if (state.lastValidDataAtMillis == null) state.copy(dataFreshness = DataFreshness.Waiting) else state
+            }
+        }
+    }
+
+    override fun onAuthenticationRequired(message: String) {
+        _uiState.update { it.copy(authenticationRequired = true, authenticationMessage = message) }
+        val password = bluetoothPassword
+        if (!password.isNullOrBlank() && bluetoothPasswordAddress == _uiState.value.connectedAddress && !passwordAttempted) {
+            passwordAttempted = true
+            bleManager.sendAuthenticationPassword(password)
+        }
+    }
+
+    override fun onAuthenticationSucceeded(profile: String) {
+        passwordAttempted = false
+        _uiState.update {
+            it.copy(
+                authenticationRequired = false,
+                authenticationMessage = "只读身份认证成功",
+                protocolProfile = "${it.protocolProfile.substringBefore(" ·")} · $profile"
+            )
+        }
+        addLog(RawLogEntry.Direction.Info, "", "只读身份认证成功：$profile")
+    }
+
     private fun handleFrame(raw: ByteArray) {
         addLog(RawLogEntry.Direction.Rx, raw.toHex(), "BMS 响应")
         val frame = JbdProtocol.decode(raw).getOrElse {
             onError("报文解析失败：${it.message}")
             return
         }
+        bleManager.onProtocolResponse(frame.command, frame.status)
         val message = JbdProtocol.parse(frame).getOrElse {
             onError("数据字段解析失败：${it.message}")
             return
@@ -187,7 +290,8 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
 
         when (message) {
             is JbdMessage.BasicInfo -> {
-                integrateCapacity(message.value.currentA, message.value.updatedAtMillis)
+                markDataFresh()
+                integrateCapacity(message.value.currentA, SystemClock.elapsedRealtime())
                 val baseLength = 23 + message.value.temperaturesC.size * 2
                 _uiState.update {
                     it.copy(
@@ -199,6 +303,7 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
                 }
             }
             is JbdMessage.Cells -> {
+                markDataFresh()
                 val declaredCount = _uiState.value.basicInfo?.cellCount
                 if (declaredCount != null && declaredCount > 0 && declaredCount != message.value.millivolts.size) {
                     addLog(
@@ -230,26 +335,123 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
                 "未知只读响应 0x${message.command.toString(16).uppercase()}"
             )
         }
+        if (frame.command == JbdProtocol.PASSWORD_PAIRING && frame.status == 0) {
+            passwordAttempted = false
+            _uiState.update {
+                it.copy(authenticationRequired = false, authenticationMessage = "只读身份认证成功")
+            }
+        }
     }
 
     private fun integrateCapacity(currentA: Double, now: Long) {
         val previous = lastCapacitySampleAt
+        val previousCurrent = lastCapacityCurrentA
         lastCapacitySampleAt = now
-        if (previous == null) return
+        lastCapacityCurrentA = currentA
+        if (previous == null || previousCurrent == null) return
         val elapsedHours = ((now - previous).coerceIn(0, 5_000)) / 3_600_000.0
-        val amount = abs(currentA) * elapsedHours
+        val averageCurrent = (previousCurrent + currentA) / 2.0
+        val amount = abs(averageCurrent) * elapsedHours
         _uiState.update {
-            if (currentA >= 0) it.copy(sessionChargeAh = it.sessionChargeAh + amount)
+            if (averageCurrent >= 0) it.copy(sessionChargeAh = it.sessionChargeAh + amount)
             else it.copy(sessionDischargeAh = it.sessionDischargeAh + amount)
         }
     }
 
+    private fun markDataFresh() {
+        communicationRecoveryTriggered = false
+        reconnectAttempt = 0
+        persistCurrentDevice()
+        _uiState.update {
+            it.copy(
+                dataFreshness = DataFreshness.Fresh,
+                reconnectAttempt = 0,
+                lastValidDataAtMillis = System.currentTimeMillis(),
+                lastDataAgeSeconds = 0
+            )
+        }
+    }
+
+    private fun persistCurrentDevice() {
+        val state = _uiState.value
+        val address = state.connectedAddress ?: return
+        val name = state.connectedName.orEmpty().ifBlank { address }
+        if (state.lastDeviceAddress == address && state.savedDevices.any { it.address == address }) return
+        val savedAddresses = preferences.getStringSet(SAVED_DEVICE_ADDRESSES, emptySet())
+            .orEmpty()
+            .toMutableSet()
+            .apply { add(address) }
+        preferences.edit()
+            .putString(LAST_DEVICE_ADDRESS, address)
+            .putString(LAST_DEVICE_NAME, name)
+            .putStringSet(SAVED_DEVICE_ADDRESSES, savedAddresses)
+            .putString("$SAVED_DEVICE_NAME_PREFIX$address", name)
+            .apply()
+        _uiState.update {
+            it.copy(
+                lastDeviceAddress = address,
+                lastDeviceName = name,
+                savedDevices = listOf(SavedDevice(address, name)) +
+                    it.savedDevices.filterNot { saved -> saved.address == address }
+            )
+        }
+    }
+
+    private fun updateDataFreshness() {
+        val state = _uiState.value
+        if (state.phase != ConnectionPhase.Ready) return
+        val freshnessBaseline = state.lastValidDataAtMillis ?: state.communicationReadyAtMillis ?: return
+        val age = System.currentTimeMillis() - freshnessBaseline
+        _uiState.update { it.copy(lastDataAgeSeconds = (age / 1_000).coerceAtLeast(0).toInt()) }
+        if (age >= STALE_AFTER_MS && state.dataFreshness != DataFreshness.Stale) {
+            _uiState.update { it.copy(dataFreshness = DataFreshness.Stale) }
+            addLog(RawLogEntry.Direction.Error, "", "超过5秒未收到有效数据，实时数据已标记为过期")
+        }
+        if (age >= RECONNECT_AFTER_STALE_MS && !communicationRecoveryTriggered) {
+            communicationRecoveryTriggered = true
+            bleManager.disconnectForCommunicationLoss("BMS 超过10秒没有返回有效数据")
+        }
+    }
+
+    private fun scheduleReconnect(address: String) {
+        reconnectJob?.cancel()
+        reconnectAttempt += 1
+        val delaySeconds = RECONNECT_DELAYS_SECONDS.getOrElse(reconnectAttempt - 1) { RECONNECT_DELAYS_SECONDS.last() }
+        reconnectJob = viewModelScope.launch {
+            for (remaining in delaySeconds downTo 1) {
+                _uiState.update {
+                    it.copy(
+                        phase = ConnectionPhase.Reconnecting,
+                        reconnectAttempt = reconnectAttempt,
+                        reconnectInSeconds = remaining
+                    )
+                }
+                delay(1_000)
+            }
+            if (!manualDisconnect && _uiState.value.permissionsGranted && _uiState.value.bluetoothEnabled) {
+                addLog(RawLogEntry.Direction.Info, "", "第 $reconnectAttempt 次自动重连")
+                bleManager.connect(address)
+            } else {
+                _uiState.update {
+                    it.copy(phase = ConnectionPhase.Idle, connectedAddress = null, reconnectInSeconds = null)
+                }
+            }
+        }
+    }
+
+    private fun cancelReconnect() {
+        reconnectJob?.cancel()
+        reconnectJob = null
+        _uiState.update { it.copy(reconnectInSeconds = null) }
+    }
+
     private fun addLog(direction: RawLogEntry.Direction, hex: String, note: String) {
         val entry = RawLogEntry(System.currentTimeMillis(), direction, hex, note)
-        _uiState.update { state -> state.copy(logs = (listOf(entry) + state.logs).take(250)) }
+        _uiState.update { state -> state.copy(logs = (listOf(entry) + state.logs).take(MAX_LOG_ENTRIES)) }
     }
 
     override fun onCleared() {
+        reconnectJob?.cancel()
         bleManager.close()
         super.onCleared()
     }
@@ -259,6 +461,7 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
         if (_uiState.value.phase != ConnectionPhase.Idle) return
         val address = preferences.getString(LAST_DEVICE_ADDRESS, null) ?: return
         autoConnectAttempted = true
+        manualDisconnect = false
         val name = preferences.getString(LAST_DEVICE_NAME, null).orEmpty().ifBlank { address }
         addLog(RawLogEntry.Direction.Info, "", "正在自动连接上次设备：$name")
         bleManager.connect(address)
@@ -284,6 +487,10 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
         private const val PREFERENCES_NAME = "jbd_bms_preferences"
         private const val LAST_DEVICE_ADDRESS = "last_device_address"
         private const val LAST_DEVICE_NAME = "last_device_name"
+        private const val STALE_AFTER_MS = 5_000L
+        private const val RECONNECT_AFTER_STALE_MS = 10_000L
+        private const val MAX_LOG_ENTRIES = 1_000
+        private val RECONNECT_DELAYS_SECONDS = listOf(2, 5, 10, 30)
         private const val SAVED_DEVICE_ADDRESSES = "saved_device_addresses"
         private const val SAVED_DEVICE_NAME_PREFIX = "saved_device_name_"
     }

@@ -30,6 +30,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -49,6 +50,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -58,6 +62,7 @@ import com.bms.jbdmanager.model.BmsBasicInfo
 import com.bms.jbdmanager.model.BmsUiState
 import com.bms.jbdmanager.model.CellSummary
 import com.bms.jbdmanager.model.ConnectionPhase
+import com.bms.jbdmanager.model.DataFreshness
 import com.bms.jbdmanager.model.RawLogEntry
 import com.bms.jbdmanager.model.ScanDevice
 import java.time.Instant
@@ -105,7 +110,8 @@ fun BmsApp(
                 Dashboard(
                     state = state,
                     onShowDevices = { showDashboard = false },
-                    onClearLogs = viewModel::clearLogs
+                    onClearLogs = viewModel::clearLogs,
+                    onSubmitPassword = viewModel::submitBluetoothPassword
                 )
             } else {
                 ScanPanel(
@@ -144,16 +150,21 @@ private fun AppHeader(state: BmsUiState) {
             Text("JBD BMS", fontWeight = FontWeight.Bold, fontSize = 20.sp)
             Text("安全只读监控", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
         }
-        StatusBadge(state.phase)
+        StatusBadge(state)
     }
 }
 
 @Composable
-private fun StatusBadge(phase: ConnectionPhase) {
-    val (text, color) = when (phase) {
-        ConnectionPhase.Ready -> "实时" to MaterialTheme.colorScheme.primary
+private fun StatusBadge(state: BmsUiState) {
+    val (text, color) = when (state.phase) {
+        ConnectionPhase.Ready -> when (state.dataFreshness) {
+            DataFreshness.Stale -> "数据过期" to MaterialTheme.colorScheme.error
+            DataFreshness.Waiting -> "等待数据" to MaterialTheme.colorScheme.secondary
+            DataFreshness.Fresh -> "实时" to MaterialTheme.colorScheme.primary
+        }
         ConnectionPhase.Scanning -> "扫描中" to MaterialTheme.colorScheme.secondary
         ConnectionPhase.Connecting, ConnectionPhase.Discovering -> "连接中" to MaterialTheme.colorScheme.secondary
+        ConnectionPhase.Reconnecting -> "重连中" to MaterialTheme.colorScheme.secondary
         ConnectionPhase.Disconnecting -> "断开中" to MaterialTheme.colorScheme.onSurfaceVariant
         ConnectionPhase.Error -> "异常" to MaterialTheme.colorScheme.error
         ConnectionPhase.Idle -> "未连接" to MaterialTheme.colorScheme.onSurfaceVariant
@@ -188,12 +199,16 @@ private fun ScanPanel(
                 !state.bluetoothSupported -> InfoCard("此设备不支持低功耗蓝牙（BLE）", MaterialTheme.colorScheme.error)
                 !state.permissionsGranted -> PrimaryAction("允许附近设备权限", requestPermissions)
                 !state.bluetoothEnabled -> PrimaryAction("开启蓝牙", requestEnableBluetooth)
+                state.phase == ConnectionPhase.Ready && state.authenticationRequired ->
+                    PrimaryAction("输入蓝牙读取密码", showDashboard)
                 state.phase == ConnectionPhase.Ready -> PrimaryAction("查看实时数据", showDashboard)
                 state.phase == ConnectionPhase.Scanning -> OutlinedButton(onClick = stopScan, modifier = Modifier.fillMaxWidth()) {
                     Text("停止扫描")
                 }
                 state.phase == ConnectionPhase.Connecting || state.phase == ConnectionPhase.Discovering ->
                     InfoCard("正在连接设备，请在下方设备卡片查看进度", MaterialTheme.colorScheme.secondary)
+                state.phase == ConnectionPhase.Reconnecting ->
+                    InfoCard("连接已中断，${state.reconnectInSeconds ?: 0} 秒后自动重连", MaterialTheme.colorScheme.secondary)
                 state.phase == ConnectionPhase.Disconnecting ->
                     InfoCard("正在断开设备…", MaterialTheme.colorScheme.onSurfaceVariant)
                 else -> PrimaryAction("扫描附近的 BMS", startScan)
@@ -297,13 +312,14 @@ private fun ConnectionDeviceRow(
     val status = when {
         isCurrent && state.phase == ConnectionPhase.Ready -> "已连接"
         isCurrent && state.phase == ConnectionPhase.Connecting -> "连接中"
+        isCurrent && state.phase == ConnectionPhase.Reconnecting -> "等待重连"
         isCurrent && state.phase == ConnectionPhase.Discovering -> "正在识别"
         isCurrent && state.phase == ConnectionPhase.Disconnecting -> "断开中"
         else -> "未连接"
     }
     val statusColor = when (status) {
         "已连接" -> MaterialTheme.colorScheme.primary
-        "连接中", "正在识别" -> MaterialTheme.colorScheme.secondary
+        "连接中", "正在识别", "等待重连" -> MaterialTheme.colorScheme.secondary
         "断开中" -> MaterialTheme.colorScheme.onSurfaceVariant
         else -> MaterialTheme.colorScheme.onSurfaceVariant
     }
@@ -347,6 +363,8 @@ private fun ConnectionDeviceRow(
                     isCurrent && (state.phase == ConnectionPhase.Ready ||
                         state.phase == ConnectionPhase.Connecting || state.phase == ConnectionPhase.Discovering) ->
                         OutlinedButton(onClick = disconnect) { Text(if (state.phase == ConnectionPhase.Ready) "断开" else "取消") }
+                    isCurrent && state.phase == ConnectionPhase.Reconnecting ->
+                        OutlinedButton(onClick = disconnect) { Text("取消重连") }
                     isCurrent && state.phase == ConnectionPhase.Disconnecting ->
                         OutlinedButton(onClick = {}, enabled = false) { Text("断开中") }
                     else -> Button(onClick = connect, enabled = !anotherDeviceBusy) { Text("连接") }
@@ -368,6 +386,7 @@ private fun ProgressPanel(state: BmsUiState, disconnect: () -> Unit) {
         Text(
             when (state.phase) {
                 ConnectionPhase.Connecting -> "正在连接 ${state.connectedName.orEmpty()}"
+                ConnectionPhase.Reconnecting -> "等待自动重新连接"
                 ConnectionPhase.Discovering -> "正在识别通信服务"
                 else -> "正在断开连接"
             },
@@ -383,10 +402,15 @@ private fun ProgressPanel(state: BmsUiState, disconnect: () -> Unit) {
 }
 
 @Composable
-private fun Dashboard(state: BmsUiState, onShowDevices: () -> Unit, onClearLogs: () -> Unit) {
+private fun Dashboard(
+    state: BmsUiState,
+    onShowDevices: () -> Unit,
+    onClearLogs: () -> Unit,
+    onSubmitPassword: (String) -> Boolean
+) {
     var tab by remember { mutableIntStateOf(0) }
     Column(Modifier.fillMaxSize()) {
-        DeviceSummary(state, onShowDevices)
+        DeviceSummary(state, onShowDevices, onSubmitPassword)
         TabSelector(tab) { tab = it }
         when (tab) {
             0 -> Overview(state)
@@ -397,13 +421,28 @@ private fun Dashboard(state: BmsUiState, onShowDevices: () -> Unit, onClearLogs:
 }
 
 @Composable
-private fun DeviceSummary(state: BmsUiState, onShowDevices: () -> Unit) {
+private fun DeviceSummary(state: BmsUiState, onShowDevices: () -> Unit, onSubmitPassword: (String) -> Boolean) {
     var showSettings by remember { androidx.compose.runtime.mutableStateOf(false) }
+    LaunchedEffect(state.authenticationRequired) {
+        if (state.authenticationRequired) showSettings = true
+    }
     Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
             Text("电池详情", fontWeight = FontWeight.Bold, fontSize = 18.sp)
             Text(
-                state.connectedName ?: "已连接 BMS",
+                buildString {
+                    append(state.connectedName ?: "已连接 BMS")
+                    state.lastValidDataAtMillis?.let {
+                        append(" · ")
+                        append(
+                            if (state.dataFreshness == DataFreshness.Stale) {
+                                "数据已过期（${state.lastDataAgeSeconds ?: 0}秒）"
+                            } else {
+                                "${state.lastDataAgeSeconds ?: 0}秒前更新"
+                            }
+                        )
+                    }
+                },
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 12.sp,
                 maxLines = 1
@@ -414,12 +453,21 @@ private fun DeviceSummary(state: BmsUiState, onShowDevices: () -> Unit) {
         OutlinedButton(onClick = { showSettings = true }) { Text("设置") }
     }
     if (showSettings) {
-        DeviceSettingsDialog(state = state, onDismiss = { showSettings = false })
+        DeviceSettingsDialog(
+            state = state,
+            onDismiss = { showSettings = false },
+            onSubmitPassword = onSubmitPassword
+        )
     }
 }
 
 @Composable
-private fun DeviceSettingsDialog(state: BmsUiState, onDismiss: () -> Unit) {
+private fun DeviceSettingsDialog(
+    state: BmsUiState,
+    onDismiss: () -> Unit,
+    onSubmitPassword: (String) -> Boolean
+) {
+    var password by rememberSaveable { androidx.compose.runtime.mutableStateOf("") }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("设备信息") },
@@ -433,6 +481,30 @@ private fun DeviceSettingsDialog(state: BmsUiState, onDismiss: () -> Unit) {
                 DialogInfoRow("蓝牙地址", state.connectedAddress ?: "--")
                 DialogInfoRow("通信协议", state.protocolProfile)
                 DialogInfoRow("操作模式", "安全只读")
+                if (state.authenticationRequired) {
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f))
+                    Text(
+                        state.authenticationMessage ?: "此蓝牙模块需要身份认证",
+                        color = MaterialTheme.colorScheme.secondary,
+                        fontSize = 12.sp
+                    )
+                    OutlinedTextField(
+                        value = password,
+                        onValueChange = { value -> password = value.filter(Char::isDigit).take(6) },
+                        label = { Text("6位蓝牙读取密码") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                        visualTransformation = PasswordVisualTransformation(),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Button(
+                        onClick = {
+                            if (onSubmitPassword(password)) password = ""
+                        },
+                        enabled = password.length == 6,
+                        modifier = Modifier.fillMaxWidth()
+                    ) { Text("进行只读认证") }
+                }
             }
         },
         confirmButton = { TextButton(onClick = onDismiss) { Text("关闭") } }

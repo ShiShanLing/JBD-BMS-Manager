@@ -52,10 +52,17 @@ enum class ConnectionPhase {
     Idle,
     Scanning,
     Connecting,
+    Reconnecting,
     Discovering,
     Ready,
     Disconnecting,
     Error
+}
+
+enum class DataFreshness {
+    Waiting,
+    Fresh,
+    Stale
 }
 
 data class RawLogEntry(
@@ -78,11 +85,19 @@ data class BmsUiState(
     val lastDeviceName: String? = null,
     val connectedAddress: String? = null,
     val connectedName: String? = null,
+    val reconnectAttempt: Int = 0,
+    val reconnectInSeconds: Int? = null,
     val modelName: String? = null,
     val protocolProfile: String = "等待识别",
     val chipType: String? = null,
     val basicInfo: BmsBasicInfo? = null,
     val cells: CellSummary? = null,
+    val dataFreshness: DataFreshness = DataFreshness.Waiting,
+    val communicationReadyAtMillis: Long? = null,
+    val lastValidDataAtMillis: Long? = null,
+    val lastDataAgeSeconds: Int? = null,
+    val authenticationRequired: Boolean = false,
+    val authenticationMessage: String? = null,
     val sessionChargeAh: Double = 0.0,
     val sessionDischargeAh: Double = 0.0,
     val logs: List<RawLogEntry> = emptyList(),

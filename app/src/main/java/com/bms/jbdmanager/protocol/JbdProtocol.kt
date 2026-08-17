@@ -25,6 +25,7 @@ object JbdProtocol {
     const val BASIC_INFO = 0x03
     const val CELL_VOLTAGES = 0x04
     const val HARDWARE_VERSION = 0x05
+    const val PASSWORD_PAIRING = 0x06
     const val CHIP_TYPE = 0x00
 
     fun readCommand(command: Int, data: ByteArray = byteArrayOf()): ByteArray {
@@ -34,6 +35,24 @@ object JbdProtocol {
             0xDD.toByte(),
             0xA5.toByte(),
             command.toByte(),
+            data.size.toByte(),
+            *data,
+            (checksum shr 8).toByte(),
+            checksum.toByte(),
+            0x77.toByte()
+        )
+    }
+
+    fun passwordPairCommand(password: String): Result<ByteArray> = runCatching {
+        require(password.length == 6 && password.all(Char::isDigit)) { "蓝牙密码必须是6位数字" }
+        val digits = password.map { (it - '0').toByte() }.toByteArray()
+        val data = byteArrayOf(6, *digits)
+        require(data.size <= 255)
+        val checksum = checksumForRequest(PASSWORD_PAIRING, data)
+        byteArrayOf(
+            0xDD.toByte(),
+            0x5A.toByte(),
+            PASSWORD_PAIRING.toByte(),
             data.size.toByte(),
             *data,
             (checksum shr 8).toByte(),

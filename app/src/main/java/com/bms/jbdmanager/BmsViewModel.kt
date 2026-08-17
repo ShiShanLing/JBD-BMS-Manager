@@ -49,6 +49,12 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
     private var bluetoothPassword: String? = null
     private var bluetoothPasswordAddress: String? = null
     private var passwordAttempted = false
+    private var classicProtocolSeen = false
+    private var modernAuthSeen = false
+    private var v12ExtensionSeen = false
+    private var lastLoggedProtocol: String? = null
+    private var basicMetadataLogged = false
+    private var cellMetadataLogged = false
 
     init {
         viewModelScope.launch {
@@ -158,6 +164,12 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
             bluetoothPasswordAddress = null
         }
         addLog(RawLogEntry.Direction.Info, "", "正在连接 $name ($address)")
+        classicProtocolSeen = false
+        modernAuthSeen = false
+        v12ExtensionSeen = false
+        lastLoggedProtocol = null
+        basicMetadataLogged = false
+        cellMetadataLogged = false
         _uiState.update {
             it.copy(
                 phase = ConnectionPhase.Connecting,
@@ -165,6 +177,8 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
                 connectedName = name,
                 modelName = null,
                 protocolProfile = "正在探测",
+                detectedProtocol = null,
+                bleChannelDetails = null,
                 chipType = null,
                 basicInfo = null,
                 cells = null,
@@ -200,6 +214,11 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
         addLog(RawLogEntry.Direction.Info, "", "通信就绪：$profile")
     }
 
+    override fun onConnectionDiagnostic(message: String) {
+        _uiState.update { it.copy(bleChannelDetails = message) }
+        addLog(RawLogEntry.Direction.Info, "", "连接诊断：$message")
+    }
+
     override fun onDisconnected(reason: String?) {
         val address = _uiState.value.connectedAddress
         val name = _uiState.value.connectedName
@@ -229,9 +248,8 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
     override fun onNotification(bytes: ByteArray) {
         if (bytes.size >= 2 && bytes[0].toInt() and 0xFF == 0xFF && bytes[1].toInt() and 0xFF == 0xAA) {
             addLog(RawLogEntry.Direction.Rx, bytes.toHex(), "检测到 JBD 新版 FF AA 认证报文")
-            _uiState.update {
-                it.copy(protocolProfile = "JBD 新版认证协议（FF AA）")
-            }
+            modernAuthSeen = true
+            publishProtocolDiagnosis()
             return
         }
         val frames = frameAssembler.append(bytes)
@@ -282,6 +300,8 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
             onError("报文解析失败：${it.message}")
             return
         }
+        classicProtocolSeen = true
+        publishProtocolDiagnosis("收到命令 0x${frame.command.toString(16).uppercase().padStart(2, '0')} 的合法 DD/77 响应")
         bleManager.onProtocolResponse(frame.command, frame.status)
         val message = JbdProtocol.parse(frame).getOrElse {
             onError("数据字段解析失败：${it.message}")
@@ -293,6 +313,19 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
                 markDataFresh()
                 integrateCapacity(message.value.currentA, SystemClock.elapsedRealtime())
                 val baseLength = 23 + message.value.temperaturesC.size * 2
+                if (frame.data.size > baseLength) {
+                    v12ExtensionSeen = true
+                    publishProtocolDiagnosis("基本信息包含 V12 扩展字段，数据长度 ${frame.data.size} 字节")
+                }
+                if (!basicMetadataLogged) {
+                    basicMetadataLogged = true
+                    addLog(
+                        RawLogEntry.Direction.Info,
+                        "",
+                        "设备状态格式：基本信息 ${frame.data.size} 字节，${message.value.cellCount} 串，" +
+                            "${message.value.temperaturesC.size} 个温度探头，软件版本 ${message.value.softwareVersion}"
+                    )
+                }
                 _uiState.update {
                     it.copy(
                         basicInfo = message.value,
@@ -304,6 +337,14 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
             }
             is JbdMessage.Cells -> {
                 markDataFresh()
+                if (!cellMetadataLogged) {
+                    cellMetadataLogged = true
+                    addLog(
+                        RawLogEntry.Direction.Info,
+                        "",
+                        "单体电压格式：${frame.data.size} 字节，共 ${message.value.millivolts.size} 串"
+                    )
+                }
                 val declaredCount = _uiState.value.basicInfo?.cellCount
                 if (declaredCount != null && declaredCount > 0 && declaredCount != message.value.millivolts.size) {
                     addLog(
@@ -318,7 +359,10 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
                 _uiState.update { it.copy(modelName = message.value) }
                 addLog(RawLogEntry.Direction.Info, "", "识别到型号：${message.value}")
             }
-            is JbdMessage.ChipType -> _uiState.update { it.copy(chipType = message.value) }
+            is JbdMessage.ChipType -> {
+                _uiState.update { it.copy(chipType = message.value) }
+                addLog(RawLogEntry.Direction.Info, "", "识别到芯片方案：${message.value}")
+            }
             is JbdMessage.Unsupported -> {
                 val reason = when (message.status) {
                     0x80 -> "设备不支持命令"
@@ -355,6 +399,28 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
         _uiState.update {
             if (averageCurrent >= 0) it.copy(sessionChargeAh = it.sessionChargeAh + amount)
             else it.copy(sessionDischargeAh = it.sessionDischargeAh + amount)
+        }
+    }
+
+    private fun publishProtocolDiagnosis(detail: String? = null) {
+        val protocol = when {
+            classicProtocolSeen && v12ExtensionSeen && modernAuthSeen -> "JBD DD/77（V12扩展）+ FF AA新版认证"
+            classicProtocolSeen && v12ExtensionSeen -> "JBD DD/77（V12扩展）"
+            classicProtocolSeen && modernAuthSeen -> "JBD DD/77（标准状态帧）+ FF AA新版认证"
+            classicProtocolSeen -> "JBD DD/77（标准状态帧）"
+            modernAuthSeen -> "JBD FF AA新版认证（等待状态数据）"
+            else -> return
+        }
+        _uiState.update { it.copy(detectedProtocol = protocol) }
+        if (protocol != lastLoggedProtocol) {
+            lastLoggedProtocol = protocol
+            addLog(
+                RawLogEntry.Direction.Info,
+                "",
+                "协议识别结果：$protocol${detail?.let { "；$it" }.orEmpty()}"
+            )
+        } else if (detail != null) {
+            addLog(RawLogEntry.Direction.Info, "", "协议证据：$detail")
         }
     }
 

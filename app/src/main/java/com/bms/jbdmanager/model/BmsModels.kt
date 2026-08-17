@@ -89,6 +89,8 @@ data class BmsUiState(
     val reconnectInSeconds: Int? = null,
     val modelName: String? = null,
     val protocolProfile: String = "等待识别",
+    val detectedProtocol: String? = null,
+    val bleChannelDetails: String? = null,
     val chipType: String? = null,
     val basicInfo: BmsBasicInfo? = null,
     val cells: CellSummary? = null,

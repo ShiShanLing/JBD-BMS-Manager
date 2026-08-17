@@ -479,7 +479,9 @@ private fun DeviceSettingsDialog(
                 HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f))
                 DialogInfoRow("蓝牙设备", state.connectedName ?: "未命名设备")
                 DialogInfoRow("蓝牙地址", state.connectedAddress ?: "--")
-                DialogInfoRow("通信协议", state.protocolProfile)
+                DialogInfoRow("BLE 通道", state.protocolProfile)
+                DialogInfoRow("识别协议", state.detectedProtocol ?: "等待有效BMS响应")
+                state.bleChannelDetails?.let { DialogInfoRow("连接诊断", it) }
                 DialogInfoRow("操作模式", "安全只读")
                 if (state.authenticationRequired) {
                     HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f))
@@ -767,6 +769,12 @@ private fun CellCard(index: Int, mv: Int, balancing: Boolean, min: Int?, max: In
 private fun LogsPanel(logs: List<RawLogEntry>, onClear: () -> Unit) {
     val context = LocalContext.current
     Column(Modifier.fillMaxSize()) {
+        Text(
+            "连接成功后分享日志，其中“连接诊断”和“协议识别结果”可用于确认你的BMS协议。",
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 12.sp,
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp)
+        )
         Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             Text("保留最近 ${logs.size} 条", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f), fontSize = 12.sp)
             OutlinedButton(

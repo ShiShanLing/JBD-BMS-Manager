@@ -33,6 +33,7 @@ interface JbdBleListener {
     fun onConnecting(address: String, name: String)
     fun onDiscovering()
     fun onReady(profile: String)
+    fun onConnectionDiagnostic(message: String)
     fun onDisconnected(reason: String?)
     fun onPacketSent(packet: ByteArray, note: String)
     fun onNotification(bytes: ByteArray)
@@ -130,6 +131,7 @@ class JbdBleManager(
                 }
                 when (newState) {
                     BluetoothProfile.STATE_CONNECTED -> {
+                        listener.onConnectionDiagnostic("GATT 连接成功，状态码 $status，开始识别服务")
                         listener.onDiscovering()
                         gatt.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH)
                         handler.removeCallbacks(setupTimeoutRunnable)
@@ -368,6 +370,10 @@ class JbdBleManager(
             writer.uuid.isShort("ffe1") && notifier.uuid.isShort("ffe1") -> "JBD 兼容 BLE（FFE0/FFE1）"
             else -> "通用 BLE 自动探测"
         }
+        val services = gatt?.services.orEmpty().joinToString(", ") { it.uuid.shortLabel() }
+        listener.onConnectionDiagnostic(
+            "BLE通道：$profile；服务：$services；写入特征：${writer.uuid.shortLabel()}；通知特征：${notifier.uuid.shortLabel()}"
+        )
         listener.onReady(profile)
         enqueueRead(JbdProtocol.BASIC_INFO, "读取基本状态")
         enqueueRead(JbdProtocol.CELL_VOLTAGES, "读取单体电压")

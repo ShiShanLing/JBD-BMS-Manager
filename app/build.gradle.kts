@@ -8,6 +8,19 @@ android {
     namespace = "com.bms.jbdmanager"
     compileSdk = 36
 
+    val ciDebugKeystorePath = System.getenv("CI_DEBUG_KEYSTORE_PATH")
+
+    signingConfigs {
+        if (!ciDebugKeystorePath.isNullOrBlank()) {
+            create("ciDebug") {
+                storeFile = file(ciDebugKeystorePath)
+                storePassword = "android"
+                keyAlias = "androiddebugkey"
+                keyPassword = "android"
+            }
+        }
+    }
+
     defaultConfig {
         applicationId = "com.bms.jbdmanager"
         minSdk = 31
@@ -20,6 +33,11 @@ android {
     }
 
     buildTypes {
+        debug {
+            if (!ciDebugKeystorePath.isNullOrBlank()) {
+                signingConfig = signingConfigs.getByName("ciDebug")
+            }
+        }
         release {
             isMinifyEnabled = false
             proguardFiles(

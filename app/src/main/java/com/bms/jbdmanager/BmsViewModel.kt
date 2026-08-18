@@ -13,13 +13,14 @@ import com.bms.jbdmanager.model.DataFreshness
 import com.bms.jbdmanager.model.GpsSpeedState
 import com.bms.jbdmanager.model.RawLogEntry
 import com.bms.jbdmanager.model.ScanDevice
-import com.bms.jbdmanager.model.SavedDevice
 import com.bms.jbdmanager.protocol.JbdFrameAssembler
 import com.bms.jbdmanager.protocol.JbdMessage
 import com.bms.jbdmanager.protocol.JbdProtocol
 import com.bms.jbdmanager.protocol.JbdProtocol.toHex
+import com.bms.jbdmanager.storage.SavedDeviceStore
 import com.bms.jbdmanager.trip.TripTracker
 import com.bms.jbdmanager.trip.TripTrackingService
+import com.bms.jbdmanager.trip.GpsSpeedTracker
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -30,12 +31,13 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 class BmsViewModel(application: Application) : AndroidViewModel(application), JbdBleListener {
-    private val preferences = application.getSharedPreferences(PREFERENCES_NAME, Application.MODE_PRIVATE)
+    private val savedDeviceStore = SavedDeviceStore(application)
+    private val savedDeviceSnapshot = savedDeviceStore.load()
     private val _uiState = MutableStateFlow(
         BmsUiState(
-            savedDevices = loadSavedDevices(),
-            lastDeviceAddress = preferences.getString(LAST_DEVICE_ADDRESS, null),
-            lastDeviceName = preferences.getString(LAST_DEVICE_NAME, null)
+            savedDevices = savedDeviceSnapshot.devices,
+            lastDeviceAddress = savedDeviceSnapshot.lastAddress,
+            lastDeviceName = savedDeviceSnapshot.lastName
         )
     )
     val uiState: StateFlow<BmsUiState> = _uiState.asStateFlow()
@@ -57,16 +59,14 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
     private var lastLoggedProtocol: String? = null
     private var basicMetadataLogged = false
     private var cellMetadataLogged = false
-    private val gpsSpeedSamples = ArrayDeque<Pair<Long, Double>>()
-    private var lastGpsSpeedSampleAtMillis: Long? = null
-    private var maximumGpsSpeedKmh = 0.0
+    private val gpsSpeedTracker = GpsSpeedTracker()
 
     init {
         TripTracker.initialize(application)
         viewModelScope.launch {
             TripTracker.state.collect { trip ->
                 val gpsSpeed = if (_uiState.value.phase == ConnectionPhase.Ready) {
-                    updateGpsSpeed(trip.currentSpeedKmh, trip.lastLocationAtMillis)
+                    gpsSpeedTracker.update(trip.currentSpeedKmh, trip.lastLocationAtMillis)
                 } else {
                     GpsSpeedState()
                 }
@@ -261,7 +261,7 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
     }
 
     override fun onConnecting(address: String, name: String) {
-        resetGpsSpeed()
+        gpsSpeedTracker.reset()
         TripTracker.resetAutoStartSuppression()
         if (bluetoothPasswordAddress != null && bluetoothPasswordAddress != address) {
             bluetoothPassword = null
@@ -306,7 +306,7 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
     }
 
     override fun onReady(profile: String) {
-        resetGpsSpeed(TripTracker.state.value.lastLocationAtMillis)
+        gpsSpeedTracker.reset(TripTracker.state.value.lastLocationAtMillis)
         communicationRecoveryTriggered = false
         passwordAttempted = false
         _uiState.update {
@@ -328,7 +328,7 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
     }
 
     override fun onDisconnected(reason: String?) {
-        resetGpsSpeed()
+        gpsSpeedTracker.reset()
         val address = _uiState.value.connectedAddress
         val name = _uiState.value.connectedName
         val shouldReconnect = !manualDisconnect && address != null && _uiState.value.bluetoothEnabled &&
@@ -347,30 +347,6 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
         addLog(RawLogEntry.Direction.Info, "", reason?.let { "连接断开：$it" } ?: "连接已断开")
         if (shouldReconnect) address?.let(::scheduleReconnect)
         manualDisconnect = false
-    }
-
-    private fun updateGpsSpeed(currentKmh: Double, locationAtMillis: Long?): GpsSpeedState {
-        val safeCurrent = currentKmh.coerceAtLeast(0.0)
-        if (locationAtMillis != null && locationAtMillis != lastGpsSpeedSampleAtMillis) {
-            lastGpsSpeedSampleAtMillis = locationAtMillis
-            gpsSpeedSamples.addLast(locationAtMillis to safeCurrent)
-            while (gpsSpeedSamples.isNotEmpty() && locationAtMillis - gpsSpeedSamples.first().first > 5_000L) {
-                gpsSpeedSamples.removeFirst()
-            }
-        }
-        if (gpsSpeedSamples.isEmpty()) return GpsSpeedState()
-        val average = gpsSpeedSamples.map { it.second }.average().takeUnless { it.isNaN() } ?: 0.0
-        val sampleSpanMillis = gpsSpeedSamples.last().first - gpsSpeedSamples.first().first
-        if (sampleSpanMillis >= 4_000L) {
-            maximumGpsSpeedKmh = maxOf(maximumGpsSpeedKmh, average)
-        }
-        return GpsSpeedState(safeCurrent, average, maximumGpsSpeedKmh)
-    }
-
-    private fun resetGpsSpeed(baselineLocationAtMillis: Long? = null) {
-        gpsSpeedSamples.clear()
-        lastGpsSpeedSampleAtMillis = baselineLocationAtMillis
-        maximumGpsSpeedKmh = 0.0
     }
 
     override fun onPacketSent(packet: ByteArray, note: String) {
@@ -574,23 +550,12 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
             existing?.name == name &&
             existing.lastSocPercent == savedSocPercent
         ) return
-        val savedAddresses = preferences.getStringSet(SAVED_DEVICE_ADDRESSES, emptySet())
-            .orEmpty()
-            .toMutableSet()
-            .apply { add(address) }
-        val editor = preferences.edit()
-            .putString(LAST_DEVICE_ADDRESS, address)
-            .putString(LAST_DEVICE_NAME, name)
-            .putStringSet(SAVED_DEVICE_ADDRESSES, savedAddresses)
-            .putString("$SAVED_DEVICE_NAME_PREFIX$address", name)
-        savedSocPercent?.let { editor.putInt("$SAVED_DEVICE_SOC_PREFIX$address", it) }
-        editor.apply()
+        val snapshot = savedDeviceStore.save(address, name, savedSocPercent)
         _uiState.update {
             it.copy(
-                lastDeviceAddress = address,
-                lastDeviceName = name,
-                savedDevices = listOf(SavedDevice(address, name, savedSocPercent)) +
-                    it.savedDevices.filterNot { saved -> saved.address == address }
+                lastDeviceAddress = snapshot.lastAddress,
+                lastDeviceName = snapshot.lastName,
+                savedDevices = snapshot.devices
             )
         }
     }
@@ -686,43 +651,19 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
     private fun tryAutoConnect(supported: Boolean, enabled: Boolean) {
         if (autoConnectAttempted || !supported || !enabled || !_uiState.value.permissionsGranted) return
         if (_uiState.value.phase != ConnectionPhase.Idle) return
-        val address = preferences.getString(LAST_DEVICE_ADDRESS, null) ?: return
+        val saved = savedDeviceStore.load()
+        val address = saved.lastAddress ?: return
         autoConnectAttempted = true
         manualDisconnect = false
-        val name = preferences.getString(LAST_DEVICE_NAME, null).orEmpty().ifBlank { address }
+        val name = saved.lastName.orEmpty().ifBlank { address }
         addLog(RawLogEntry.Direction.Info, "", "正在自动连接上次设备：$name")
         bleManager.connect(address)
     }
 
-    private fun loadSavedDevices(): List<SavedDevice> {
-        val lastAddress = preferences.getString(LAST_DEVICE_ADDRESS, null)
-        val addresses = preferences.getStringSet(SAVED_DEVICE_ADDRESSES, emptySet())
-            .orEmpty()
-            .toMutableSet()
-            .apply { lastAddress?.let(::add) }
-        return addresses.map { address ->
-            SavedDevice(
-                address = address,
-                name = preferences.getString("$SAVED_DEVICE_NAME_PREFIX$address", null)
-                    ?: (if (address == lastAddress) preferences.getString(LAST_DEVICE_NAME, null) else null)
-                    ?: address,
-                lastSocPercent = if (preferences.contains("$SAVED_DEVICE_SOC_PREFIX$address")) {
-                    preferences.getInt("$SAVED_DEVICE_SOC_PREFIX$address", 0).coerceIn(0, 100)
-                } else null
-            )
-        }.sortedByDescending { it.address == lastAddress }
-    }
-
     companion object {
-        private const val PREFERENCES_NAME = "jbd_bms_preferences"
-        private const val LAST_DEVICE_ADDRESS = "last_device_address"
-        private const val LAST_DEVICE_NAME = "last_device_name"
         private const val STALE_AFTER_MS = 5_000L
         private const val RECONNECT_AFTER_STALE_MS = 10_000L
         private const val MAX_LOG_ENTRIES = 1_000
         private val RECONNECT_DELAYS_SECONDS = listOf(2, 5, 10, 30)
-        private const val SAVED_DEVICE_ADDRESSES = "saved_device_addresses"
-        private const val SAVED_DEVICE_NAME_PREFIX = "saved_device_name_"
-        private const val SAVED_DEVICE_SOC_PREFIX = "saved_device_soc_"
     }
 }

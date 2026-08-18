@@ -55,7 +55,7 @@ jobs:
         id: apk
         run: |
           VERSION_NAME=$(sed -n 's/.*versionName = "\([^"]*\)".*/\1/p' app/build.gradle.kts | head -n 1)
-          BUILD_NUMBER=1
+          BUILD_NUMBER=12
           APK_NAME="JBD-BMS-Manager-v${VERSION_NAME}-build-${BUILD_NUMBER}.apk"
           cp app/build/outputs/apk/debug/app-debug.apk "$APK_NAME"
           echo "name=$APK_NAME" >> "$GITHUB_OUTPUT"

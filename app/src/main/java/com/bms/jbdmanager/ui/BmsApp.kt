@@ -160,13 +160,13 @@ private fun AppHeader(state: BmsUiState, refreshNearby: () -> Unit) {
             Text("JBD BMS", fontWeight = FontWeight.Bold, fontSize = 17.sp)
             Text("安全只读监控", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 10.sp)
         }
-        IconButton(onClick = refreshNearby, modifier = Modifier.size(44.dp)) {
+        IconButton(onClick = refreshNearby, modifier = Modifier.size(56.dp)) {
             Icon(
                 painter = painterResource(R.drawable.ic_refresh),
                 contentDescription = if (state.isScanning) "停止扫描" else "刷新附近设备",
                 tint = if (state.isScanning) MaterialTheme.colorScheme.secondary
                 else MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(29.dp)
+                modifier = Modifier.size(38.dp)
             )
         }
         Spacer(Modifier.width(6.dp))

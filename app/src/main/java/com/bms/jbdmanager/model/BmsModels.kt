@@ -80,6 +80,7 @@ data class BmsUiState(
     val bluetoothEnabled: Boolean = true,
     val permissionsGranted: Boolean = false,
     val phase: ConnectionPhase = ConnectionPhase.Idle,
+    val isScanning: Boolean = false,
     val devices: List<ScanDevice> = emptyList(),
     val savedDevices: List<SavedDevice> = emptyList(),
     val lastDeviceAddress: String? = null,

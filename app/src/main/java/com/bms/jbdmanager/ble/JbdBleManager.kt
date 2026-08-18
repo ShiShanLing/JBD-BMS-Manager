@@ -223,7 +223,7 @@ class JbdBleManager(
         listener.onBluetoothState(adapter != null, adapter?.isEnabled == true)
     }
 
-    fun startScan() {
+    fun startScan(keepConnection: Boolean = false) {
         val bluetoothAdapter = adapter
         if (bluetoothAdapter == null) {
             listener.onBluetoothState(supported = false, enabled = false)
@@ -233,7 +233,7 @@ class JbdBleManager(
             listener.onBluetoothState(supported = true, enabled = false)
             return
         }
-        closeGatt()
+        if (!keepConnection) closeGatt()
         scanResults.clear()
         listener.onScanResult(emptyList())
         listener.onScanStarted()

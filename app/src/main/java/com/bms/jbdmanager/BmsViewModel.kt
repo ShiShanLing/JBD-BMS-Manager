@@ -73,10 +73,13 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
             onError("请先允许附近设备权限")
             return
         }
-        manualDisconnect = true
-        cancelReconnect()
+        val keepConnection = _uiState.value.phase == ConnectionPhase.Ready
+        if (!keepConnection) {
+            manualDisconnect = true
+            cancelReconnect()
+        }
         _uiState.update { it.copy(errorMessage = null, devices = emptyList()) }
-        bleManager.startScan()
+        bleManager.startScan(keepConnection)
     }
 
     fun stopScan() = bleManager.stopScan()
@@ -133,10 +136,12 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
     override fun onScanStarted() {
         addLog(RawLogEntry.Direction.Info, "", "开始扫描附近 BLE 设备")
         _uiState.update {
+            val keepConnection = it.phase == ConnectionPhase.Ready
             it.copy(
-                phase = ConnectionPhase.Scanning,
-                connectedAddress = null,
-                connectedName = null,
+                phase = if (keepConnection) it.phase else ConnectionPhase.Scanning,
+                isScanning = true,
+                connectedAddress = if (keepConnection) it.connectedAddress else null,
+                connectedName = if (keepConnection) it.connectedName else null,
                 errorMessage = null
             )
         }
@@ -148,7 +153,10 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
 
     override fun onScanStopped() {
         _uiState.update {
-            if (it.phase == ConnectionPhase.Scanning) it.copy(phase = ConnectionPhase.Idle) else it
+            it.copy(
+                phase = if (it.phase == ConnectionPhase.Scanning) ConnectionPhase.Idle else it.phase,
+                isScanning = false
+            )
         }
     }
 
@@ -169,6 +177,7 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
         _uiState.update {
             it.copy(
                 phase = ConnectionPhase.Connecting,
+                isScanning = false,
                 connectedAddress = address,
                 connectedName = displayName,
                 modelName = null,

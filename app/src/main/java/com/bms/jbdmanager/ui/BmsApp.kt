@@ -28,6 +28,8 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -118,13 +120,19 @@ fun BmsApp(
                     onSubmitPassword = viewModel::submitBluetoothPassword
                 )
             } else {
-                AppHeader(state)
+                AppHeader(
+                    state = state,
+                    refreshNearby = {
+                        when {
+                            !state.permissionsGranted -> requestPermissions()
+                            !state.bluetoothEnabled -> requestEnableBluetooth()
+                            state.isScanning -> viewModel.stopScan()
+                            else -> viewModel.startScan()
+                        }
+                    }
+                )
                 ScanPanel(
                     state = state,
-                    requestPermissions = requestPermissions,
-                    requestEnableBluetooth = requestEnableBluetooth,
-                    startScan = viewModel::startScan,
-                    stopScan = viewModel::stopScan,
                     connect = viewModel::connect,
                     disconnect = viewModel::disconnect,
                     showDashboard = { showDashboard = true }
@@ -135,7 +143,7 @@ fun BmsApp(
 }
 
 @Composable
-private fun AppHeader(state: BmsUiState) {
+private fun AppHeader(state: BmsUiState, refreshNearby: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -152,13 +160,25 @@ private fun AppHeader(state: BmsUiState) {
             Text("JBD BMS", fontWeight = FontWeight.Bold, fontSize = 17.sp)
             Text("安全只读监控", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 10.sp)
         }
+        IconButton(onClick = refreshNearby, modifier = Modifier.size(34.dp)) {
+            Icon(
+                painter = painterResource(R.drawable.ic_refresh),
+                contentDescription = if (state.isScanning) "停止扫描" else "刷新附近设备",
+                tint = if (state.isScanning) MaterialTheme.colorScheme.secondary
+                else MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(21.dp)
+            )
+        }
+        Spacer(Modifier.width(6.dp))
         StatusBadge(state)
     }
 }
 
 @Composable
 private fun StatusBadge(state: BmsUiState) {
-    val (text, color) = when (state.phase) {
+    val (text, color) = if (state.isScanning) {
+        "扫描中" to MaterialTheme.colorScheme.secondary
+    } else when (state.phase) {
         ConnectionPhase.Ready -> when (state.dataFreshness) {
             DataFreshness.Stale -> "数据过期" to MaterialTheme.colorScheme.error
             DataFreshness.Waiting -> "等待数据" to MaterialTheme.colorScheme.secondary
@@ -179,10 +199,6 @@ private fun StatusBadge(state: BmsUiState) {
 @Composable
 private fun ScanPanel(
     state: BmsUiState,
-    requestPermissions: () -> Unit,
-    requestEnableBluetooth: () -> Unit,
-    startScan: () -> Unit,
-    stopScan: () -> Unit,
     connect: (String) -> Unit,
     disconnect: () -> Unit,
     showDashboard: () -> Unit
@@ -193,21 +209,19 @@ private fun ScanPanel(
             Spacer(Modifier.height(12.dp))
             when {
                 !state.bluetoothSupported -> InfoCard("此设备不支持低功耗蓝牙（BLE）", MaterialTheme.colorScheme.error)
-                !state.permissionsGranted -> PrimaryAction("允许附近设备权限", requestPermissions)
-                !state.bluetoothEnabled -> PrimaryAction("开启蓝牙", requestEnableBluetooth)
+                !state.permissionsGranted -> InfoCard("点击顶部刷新图标，允许附近设备权限", MaterialTheme.colorScheme.secondary)
+                !state.bluetoothEnabled -> InfoCard("点击顶部刷新图标开启蓝牙", MaterialTheme.colorScheme.secondary)
                 state.phase == ConnectionPhase.Ready && state.authenticationRequired ->
                     PrimaryAction("输入蓝牙读取密码", showDashboard)
                 state.phase == ConnectionPhase.Ready -> Unit
-                state.phase == ConnectionPhase.Scanning -> OutlinedButton(onClick = stopScan, modifier = Modifier.fillMaxWidth()) {
-                    Text("停止扫描")
-                }
+                state.isScanning -> InfoCard("正在扫描附近的蓝牙设备…", MaterialTheme.colorScheme.secondary)
                 state.phase == ConnectionPhase.Connecting || state.phase == ConnectionPhase.Discovering ->
                     InfoCard("正在连接设备，请在下方设备卡片查看进度", MaterialTheme.colorScheme.secondary)
                 state.phase == ConnectionPhase.Reconnecting ->
                     InfoCard("连接已中断，${state.reconnectInSeconds ?: 0} 秒后自动重连", MaterialTheme.colorScheme.secondary)
                 state.phase == ConnectionPhase.Disconnecting ->
                     InfoCard("正在断开设备…", MaterialTheme.colorScheme.onSurfaceVariant)
-                else -> PrimaryAction("扫描附近的 BMS", startScan)
+                else -> Unit
             }
         }
 
@@ -254,7 +268,7 @@ private fun ScanPanel(
             val savedAddresses = state.savedDevices.map { it.address }.toSet()
             val nearbyDevices = state.devices.filter { it.address !in savedAddresses }
             if (nearbyDevices.isEmpty()) {
-                EmptyDevices(state.phase == ConnectionPhase.Scanning)
+                EmptyDevices(state.isScanning)
             } else {
                 LazyColumn(
                     contentPadding = PaddingValues(horizontal = 20.dp, vertical = 6.dp),

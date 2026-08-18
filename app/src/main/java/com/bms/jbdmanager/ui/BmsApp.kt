@@ -160,13 +160,13 @@ private fun AppHeader(state: BmsUiState, refreshNearby: () -> Unit) {
             Text("JBD BMS", fontWeight = FontWeight.Bold, fontSize = 17.sp)
             Text("安全只读监控", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 10.sp)
         }
-        IconButton(onClick = refreshNearby, modifier = Modifier.size(34.dp)) {
+        IconButton(onClick = refreshNearby, modifier = Modifier.size(44.dp)) {
             Icon(
                 painter = painterResource(R.drawable.ic_refresh),
                 contentDescription = if (state.isScanning) "停止扫描" else "刷新附近设备",
                 tint = if (state.isScanning) MaterialTheme.colorScheme.secondary
                 else MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(21.dp)
+                modifier = Modifier.size(29.dp)
             )
         }
         Spacer(Modifier.width(6.dp))
@@ -214,7 +214,7 @@ private fun ScanPanel(
                 state.phase == ConnectionPhase.Ready && state.authenticationRequired ->
                     PrimaryAction("输入蓝牙读取密码", showDashboard)
                 state.phase == ConnectionPhase.Ready -> Unit
-                state.isScanning -> InfoCard("正在扫描附近的蓝牙设备…", MaterialTheme.colorScheme.secondary)
+                state.isScanning -> Unit
                 state.phase == ConnectionPhase.Connecting || state.phase == ConnectionPhase.Discovering ->
                     InfoCard("正在连接设备，请在下方设备卡片查看进度", MaterialTheme.colorScheme.secondary)
                 state.phase == ConnectionPhase.Reconnecting ->

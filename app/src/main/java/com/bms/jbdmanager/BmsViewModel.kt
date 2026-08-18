@@ -1,6 +1,8 @@
 package com.bms.jbdmanager
 
 import android.app.Application
+import android.content.Intent
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.bms.jbdmanager.ble.JbdBleListener
@@ -8,6 +10,7 @@ import com.bms.jbdmanager.ble.JbdBleManager
 import com.bms.jbdmanager.model.BmsUiState
 import com.bms.jbdmanager.model.ConnectionPhase
 import com.bms.jbdmanager.model.DataFreshness
+import com.bms.jbdmanager.model.GpsSpeedState
 import com.bms.jbdmanager.model.RawLogEntry
 import com.bms.jbdmanager.model.ScanDevice
 import com.bms.jbdmanager.model.SavedDevice
@@ -15,6 +18,8 @@ import com.bms.jbdmanager.protocol.JbdFrameAssembler
 import com.bms.jbdmanager.protocol.JbdMessage
 import com.bms.jbdmanager.protocol.JbdProtocol
 import com.bms.jbdmanager.protocol.JbdProtocol.toHex
+import com.bms.jbdmanager.trip.TripTracker
+import com.bms.jbdmanager.trip.TripTrackingService
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -37,6 +42,7 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
 
     private val frameAssembler = JbdFrameAssembler()
     private val bleManager = JbdBleManager(application, this)
+    private val tripServiceIntent = Intent(application, TripTrackingService::class.java)
     private var autoConnectAttempted = false
     private var manualDisconnect = false
     private var reconnectJob: Job? = null
@@ -51,8 +57,22 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
     private var lastLoggedProtocol: String? = null
     private var basicMetadataLogged = false
     private var cellMetadataLogged = false
+    private val gpsSpeedSamples = ArrayDeque<Pair<Long, Double>>()
+    private var lastGpsSpeedSampleAtMillis: Long? = null
+    private var maximumGpsSpeedKmh = 0.0
 
     init {
+        TripTracker.initialize(application)
+        viewModelScope.launch {
+            TripTracker.state.collect { trip ->
+                val gpsSpeed = if (_uiState.value.phase == ConnectionPhase.Ready) {
+                    updateGpsSpeed(trip.currentSpeedKmh, trip.lastLocationAtMillis)
+                } else {
+                    GpsSpeedState()
+                }
+                _uiState.update { it.copy(trip = trip, gpsSpeed = gpsSpeed) }
+            }
+        }
         viewModelScope.launch {
             while (isActive) {
                 delay(1_000)
@@ -64,6 +84,16 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
     fun setPermissionsGranted(granted: Boolean) {
         _uiState.update { it.copy(permissionsGranted = granted) }
         if (granted) bleManager.refreshBluetoothState()
+    }
+
+    fun setLocationPermissionGranted(granted: Boolean) {
+        _uiState.update { it.copy(locationPermissionGranted = granted) }
+        if (granted) {
+            startOrUpdateTripTracking()
+        } else if (TripTracker.state.value.isTracking) {
+            TripTracker.finish("精确位置权限不可用，行程已停止")
+            getApplication<Application>().stopService(tripServiceIntent)
+        }
     }
 
     fun refreshBluetoothState() = bleManager.refreshBluetoothState()
@@ -97,6 +127,7 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
     fun disconnect() {
         manualDisconnect = true
         cancelReconnect()
+        finishTripTracking()
         if (_uiState.value.phase == ConnectionPhase.Reconnecting) {
             _uiState.update {
                 it.copy(
@@ -109,6 +140,27 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
             return
         }
         _uiState.update { it.copy(phase = ConnectionPhase.Disconnecting) }
+        bleManager.disconnect()
+    }
+
+    fun shutdownAll() {
+        manualDisconnect = true
+        autoConnectAttempted = true
+        cancelReconnect()
+        reconnectAttempt = 0
+        bleManager.stopScan()
+        TripTracker.suppressUntilNextConnection("已退出并停止全部服务")
+        getApplication<Application>().stopService(tripServiceIntent)
+        _uiState.update {
+            it.copy(
+                phase = ConnectionPhase.Idle,
+                isScanning = false,
+                connectedAddress = null,
+                reconnectAttempt = 0,
+                reconnectInSeconds = null,
+                gpsSpeed = GpsSpeedState()
+            )
+        }
         bleManager.disconnect()
     }
 
@@ -127,6 +179,54 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
     fun clearLogs() = _uiState.update { it.copy(logs = emptyList()) }
 
     fun dismissError() = _uiState.update { it.copy(errorMessage = null) }
+
+    fun startRangeTest(targetSpeedKmh: Int) {
+        val state = _uiState.value
+        val info = state.basicInfo
+        when {
+            state.phase != ConnectionPhase.Ready || info == null -> onError("请先连接 BMS 并等待电池数据")
+            !state.locationPermissionGranted -> onError("请先允许精确位置权限")
+            !state.trip.isTracking -> onError("GPS 行程尚未开始，请重新连接设备")
+            else -> {
+                TripTracker.startRangeTest(targetSpeedKmh, info)
+                addLog(
+                    RawLogEntry.Direction.Info,
+                    "",
+                    "开始 ${targetSpeedKmh}km/h 续航测试，有效速度 ${targetSpeedKmh - 5}–${targetSpeedKmh + 5}km/h"
+                )
+            }
+        }
+    }
+
+    fun finishRangeTest() {
+        if (!_uiState.value.trip.rangeTest.isActive) return
+        TripTracker.finishRangeTest()
+        addLog(RawLogEntry.Direction.Info, "", "续航测试已结束，结果已保留")
+    }
+
+    fun armBrakeTest(targetSpeedKmh: Int) {
+        val state = _uiState.value
+        when {
+            state.phase != ConnectionPhase.Ready -> onError("请先连接 BMS")
+            !state.locationPermissionGranted -> onError("请先允许精确位置权限")
+            !state.trip.isTracking -> onError("GPS 行程尚未开始")
+            targetSpeedKmh !in 10..120 -> onError("目标速度请输入 10–120 km/h")
+            else -> {
+                TripTracker.armBrakeTest(targetSpeedKmh)
+                addLog(RawLogEntry.Direction.Info, "", "刹车测试已准备：${targetSpeedKmh}km/h 到停止")
+            }
+        }
+    }
+
+    fun cancelBrakeTest() {
+        TripTracker.cancelBrakeTest()
+        addLog(RawLogEntry.Direction.Info, "", "刹车测试已取消")
+    }
+
+    fun clearSpeedRangeStats() {
+        TripTracker.clearSpeedRangeStats()
+        addLog(RawLogEntry.Direction.Info, "", "已清空长期累计的续航测试样本")
+    }
 
     override fun onBluetoothState(supported: Boolean, enabled: Boolean) {
         _uiState.update { it.copy(bluetoothSupported = supported, bluetoothEnabled = enabled) }
@@ -161,6 +261,8 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
     }
 
     override fun onConnecting(address: String, name: String) {
+        resetGpsSpeed()
+        TripTracker.resetAutoStartSuppression()
         if (bluetoothPasswordAddress != null && bluetoothPasswordAddress != address) {
             bluetoothPassword = null
             bluetoothPasswordAddress = null
@@ -192,7 +294,8 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
                 communicationReadyAtMillis = null,
                 lastValidDataAtMillis = null,
                 authenticationRequired = false,
-                authenticationMessage = null
+                authenticationMessage = null,
+                gpsSpeed = GpsSpeedState()
             )
         }
     }
@@ -203,6 +306,7 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
     }
 
     override fun onReady(profile: String) {
+        resetGpsSpeed(TripTracker.state.value.lastLocationAtMillis)
         communicationRecoveryTriggered = false
         passwordAttempted = false
         _uiState.update {
@@ -211,7 +315,8 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
                 protocolProfile = profile,
                 errorMessage = null,
                 communicationReadyAtMillis = System.currentTimeMillis(),
-                reconnectInSeconds = null
+                reconnectInSeconds = null,
+                gpsSpeed = GpsSpeedState()
             )
         }
         addLog(RawLogEntry.Direction.Info, "", "通信就绪：$profile")
@@ -223,6 +328,7 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
     }
 
     override fun onDisconnected(reason: String?) {
+        resetGpsSpeed()
         val address = _uiState.value.connectedAddress
         val name = _uiState.value.connectedName
         val shouldReconnect = !manualDisconnect && address != null && _uiState.value.bluetoothEnabled &&
@@ -234,12 +340,37 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
                 connectedAddress = if (shouldReconnect) address else null,
                 connectedName = if (shouldReconnect) name else it.connectedName,
                 dataFreshness = DataFreshness.Stale,
+                gpsSpeed = GpsSpeedState(),
                 errorMessage = reason
             )
         }
         addLog(RawLogEntry.Direction.Info, "", reason?.let { "连接断开：$it" } ?: "连接已断开")
         if (shouldReconnect) address?.let(::scheduleReconnect)
         manualDisconnect = false
+    }
+
+    private fun updateGpsSpeed(currentKmh: Double, locationAtMillis: Long?): GpsSpeedState {
+        val safeCurrent = currentKmh.coerceAtLeast(0.0)
+        if (locationAtMillis != null && locationAtMillis != lastGpsSpeedSampleAtMillis) {
+            lastGpsSpeedSampleAtMillis = locationAtMillis
+            gpsSpeedSamples.addLast(locationAtMillis to safeCurrent)
+            while (gpsSpeedSamples.isNotEmpty() && locationAtMillis - gpsSpeedSamples.first().first > 5_000L) {
+                gpsSpeedSamples.removeFirst()
+            }
+        }
+        if (gpsSpeedSamples.isEmpty()) return GpsSpeedState()
+        val average = gpsSpeedSamples.map { it.second }.average().takeUnless { it.isNaN() } ?: 0.0
+        val sampleSpanMillis = gpsSpeedSamples.last().first - gpsSpeedSamples.first().first
+        if (sampleSpanMillis >= 4_000L) {
+            maximumGpsSpeedKmh = maxOf(maximumGpsSpeedKmh, average)
+        }
+        return GpsSpeedState(safeCurrent, average, maximumGpsSpeedKmh)
+    }
+
+    private fun resetGpsSpeed(baselineLocationAtMillis: Long? = null) {
+        gpsSpeedSamples.clear()
+        lastGpsSpeedSampleAtMillis = baselineLocationAtMillis
+        maximumGpsSpeedKmh = 0.0
     }
 
     override fun onPacketSent(packet: ByteArray, note: String) {
@@ -334,6 +465,7 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
                         } else it.protocolProfile
                     )
                 }
+                startOrUpdateTripTracking(message.value)
             }
             is JbdMessage.Cells -> {
                 markDataFresh()
@@ -477,6 +609,35 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
             communicationRecoveryTriggered = true
             bleManager.disconnectForCommunicationLoss("BMS 超过10秒没有返回有效数据")
         }
+    }
+
+    private fun startOrUpdateTripTracking(info: com.bms.jbdmanager.model.BmsBasicInfo? = _uiState.value.basicInfo) {
+        val state = _uiState.value
+        if (!state.locationPermissionGranted || state.phase != ConnectionPhase.Ready || info == null) return
+        if (TripTracker.isAutoStartSuppressed()) return
+        if (!TripTracker.state.value.isTracking) {
+            TripTracker.begin(info)
+            val serviceStarted = runCatching {
+                ContextCompat.startForegroundService(
+                    getApplication(),
+                    tripServiceIntent.setAction(TripTrackingService.ACTION_START)
+                )
+            }.isSuccess
+            if (!serviceStarted) {
+                TripTracker.finish("无法启动后台定位，请保持 App 在前台后重试")
+                onError("GPS 行程服务启动失败，请保持 App 在前台并重新连接")
+                return
+            }
+            addLog(RawLogEntry.Direction.Info, "", "已连接 BMS，开始记录 GPS 行程")
+        }
+        TripTracker.updateBms(info)
+    }
+
+    private fun finishTripTracking() {
+        if (!TripTracker.state.value.isTracking) return
+        TripTracker.finish("蓝牙已手动断开，行程结束")
+        getApplication<Application>().stopService(tripServiceIntent)
+        addLog(RawLogEntry.Direction.Info, "", "已结束 GPS 行程记录")
     }
 
     private fun scheduleReconnect(address: String) {

@@ -25,8 +25,9 @@ android {
         applicationId = "com.bms.jbdmanager"
         minSdk = 31
         targetSdk = 36
-        versionCode = 10
-        versionName = "0.3.2"
+        // Keep versionCode increasing so this APK can update the currently installed app.
+        versionCode = 11
+        versionName = "0.4.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
@@ -71,7 +72,7 @@ dependencies {
     implementation(composeBom)
     androidTestImplementation(composeBom)
 
-    implementation("androidx.core:core-ktx:1.16.0")
+    implementation("androidx.core:core-ktx:1.18.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.9.1")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.9.1")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.9.1")

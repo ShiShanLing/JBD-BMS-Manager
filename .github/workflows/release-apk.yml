@@ -55,19 +55,22 @@ jobs:
         id: apk
         run: |
           VERSION_NAME=$(sed -n 's/.*versionName = "\([^"]*\)".*/\1/p' app/build.gradle.kts | head -n 1)
-          APK_NAME="JBD-BMS-Manager-v${VERSION_NAME}-build-${GITHUB_RUN_NUMBER}.apk"
+          BUILD_NUMBER=1
+          APK_NAME="JBD-BMS-Manager-v${VERSION_NAME}-build-${BUILD_NUMBER}.apk"
           cp app/build/outputs/apk/debug/app-debug.apk "$APK_NAME"
           echo "name=$APK_NAME" >> "$GITHUB_OUTPUT"
           echo "version=$VERSION_NAME" >> "$GITHUB_OUTPUT"
+          echo "build=$BUILD_NUMBER" >> "$GITHUB_OUTPUT"
 
       - name: 创建 GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
           APK_NAME: ${{ steps.apk.outputs.name }}
           VERSION_NAME: ${{ steps.apk.outputs.version }}
+          BUILD_NUMBER: ${{ steps.apk.outputs.build }}
         run: |
-          gh release create "build-${GITHUB_RUN_NUMBER}" "$APK_NAME" \
-            --title "JBD BMS 测试版 #${GITHUB_RUN_NUMBER}（v${VERSION_NAME}）" \
+          gh release create "v${VERSION_NAME}-build-${BUILD_NUMBER}" "$APK_NAME" \
+            --title "JBD BMS v${VERSION_NAME}（build ${BUILD_NUMBER}）" \
             --notes "根据 main 分支提交 ${GITHUB_SHA} 自动构建。下载 APK 后可直接在 Android 12 或更高版本手机上安装测试。" \
             --prerelease \
             --latest=false

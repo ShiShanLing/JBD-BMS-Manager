@@ -93,8 +93,10 @@ fun BmsApp(
     }
 
     LaunchedEffect(state.phase) {
-        if (state.phase == ConnectionPhase.Idle || state.phase == ConnectionPhase.Error) {
-            showDashboard = false
+        when (state.phase) {
+            ConnectionPhase.Ready -> showDashboard = true
+            ConnectionPhase.Idle, ConnectionPhase.Error -> showDashboard = false
+            else -> Unit
         }
     }
 

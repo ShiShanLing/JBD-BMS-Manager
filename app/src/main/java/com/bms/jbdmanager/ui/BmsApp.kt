@@ -220,8 +220,11 @@ private fun ScanPanel(
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     state.savedDevices.forEach { saved ->
                         val scanned = state.devices.firstOrNull { it.address == saved.address }
+                        val displayDevice = scanned?.let {
+                            if (it.name == "未命名设备" && saved.name != "未命名设备") it.copy(name = saved.name) else it
+                        }
                         ConnectionDeviceRow(
-                            device = scanned ?: ScanDevice(
+                            device = displayDevice ?: ScanDevice(
                                 address = saved.address,
                                 name = saved.name,
                                 rssi = Int.MIN_VALUE,

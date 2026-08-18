@@ -157,7 +157,9 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
             bluetoothPassword = null
             bluetoothPasswordAddress = null
         }
-        addLog(RawLogEntry.Direction.Info, "", "正在连接 $name ($address)")
+        val rememberedName = _uiState.value.savedDevices.firstOrNull { it.address == address }?.name
+        val displayName = if (name == "未命名设备" && !rememberedName.isNullOrBlank()) rememberedName else name
+        addLog(RawLogEntry.Direction.Info, "", "正在连接 $displayName ($address)")
         classicProtocolSeen = false
         modernAuthSeen = false
         v12ExtensionSeen = false
@@ -168,7 +170,7 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
             it.copy(
                 phase = ConnectionPhase.Connecting,
                 connectedAddress = address,
-                connectedName = name,
+                connectedName = displayName,
                 modelName = null,
                 protocolProfile = "正在探测",
                 detectedProtocol = null,
@@ -345,7 +347,15 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
                 _uiState.update { it.copy(cells = message.value) }
             }
             is JbdMessage.HardwareVersion -> {
-                _uiState.update { it.copy(modelName = message.value) }
+                _uiState.update {
+                    it.copy(
+                        modelName = message.value,
+                        connectedName = if (it.connectedName.isNullOrBlank() || it.connectedName == "未命名设备") {
+                            message.value
+                        } else it.connectedName
+                    )
+                }
+                persistCurrentDevice()
                 addLog(RawLogEntry.Direction.Info, "", "识别到型号：${message.value}")
             }
             is JbdMessage.ChipType -> {

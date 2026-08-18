@@ -153,7 +153,13 @@ class JbdBleManager(
         }
 
         override fun onMtuChanged(gatt: BluetoothGatt, mtu: Int, status: Int) {
-            handler.post { discoverServices(gatt) }
+            handler.post {
+                listener.onConnectionDiagnostic(
+                    if (status == BluetoothGatt.GATT_SUCCESS) "MTU 协商成功：$mtu"
+                    else "MTU 协商未生效，状态码 $status，继续使用默认值"
+                )
+                discoverServices(gatt)
+            }
         }
 
         override fun onServicesDiscovered(gatt: BluetoothGatt, status: Int) {
@@ -322,9 +328,25 @@ class JbdBleManager(
                 ) != 0
         }
 
-        writeCharacteristic = writable.maxByOrNull(::writePriority)
-        notifyCharacteristic = notifiable.maxByOrNull(::notifyPriority)
-            ?: writeCharacteristic?.takeIf { it in notifiable }
+        val standardService = gatt.getService(JBD_STANDARD_SERVICE_UUID)
+        val standardWriter = standardService?.getCharacteristic(JBD_STANDARD_WRITE_UUID)?.takeIf { it in writable }
+        val standardNotifier = standardService?.getCharacteristic(JBD_STANDARD_NOTIFY_UUID)?.takeIf { it in notifiable }
+
+        val compatibleService = gatt.getService(JBD_COMPATIBLE_SERVICE_UUID)
+        val compatibleChannel = compatibleService?.getCharacteristic(JBD_COMPATIBLE_CHANNEL_UUID)
+            ?.takeIf { it in writable && it in notifiable }
+
+        if (standardWriter != null && standardNotifier != null) {
+            writeCharacteristic = standardWriter
+            notifyCharacteristic = standardNotifier
+        } else if (compatibleChannel != null) {
+            writeCharacteristic = compatibleChannel
+            notifyCharacteristic = compatibleChannel
+        } else {
+            writeCharacteristic = writable.maxByOrNull(::writePriority)
+            notifyCharacteristic = notifiable.maxByOrNull(::notifyPriority)
+                ?: writeCharacteristic?.takeIf { it in notifiable }
+        }
 
         val writer = writeCharacteristic
         val notifier = notifyCharacteristic
@@ -670,6 +692,11 @@ class JbdBleManager(
 
     companion object {
         private val CLIENT_CONFIG_UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
+        private val JBD_STANDARD_SERVICE_UUID = UUID.fromString("0000ff00-0000-1000-8000-00805f9b34fb")
+        private val JBD_STANDARD_NOTIFY_UUID = UUID.fromString("0000ff01-0000-1000-8000-00805f9b34fb")
+        private val JBD_STANDARD_WRITE_UUID = UUID.fromString("0000ff02-0000-1000-8000-00805f9b34fb")
+        private val JBD_COMPATIBLE_SERVICE_UUID = UUID.fromString("0000ffe0-0000-1000-8000-00805f9b34fb")
+        private val JBD_COMPATIBLE_CHANNEL_UUID = UUID.fromString("0000ffe1-0000-1000-8000-00805f9b34fb")
         private const val CONNECTION_TIMEOUT_MS = 15_000L
         private const val SETUP_TIMEOUT_MS = 10_000L
         private const val WRITE_TIMEOUT_MS = 2_000L

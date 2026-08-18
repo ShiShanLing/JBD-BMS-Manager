@@ -197,7 +197,7 @@ private fun ScanPanel(
                 !state.bluetoothEnabled -> PrimaryAction("开启蓝牙", requestEnableBluetooth)
                 state.phase == ConnectionPhase.Ready && state.authenticationRequired ->
                     PrimaryAction("输入蓝牙读取密码", showDashboard)
-                state.phase == ConnectionPhase.Ready -> PrimaryAction("查看实时数据", showDashboard)
+                state.phase == ConnectionPhase.Ready -> Unit
                 state.phase == ConnectionPhase.Scanning -> OutlinedButton(onClick = stopScan, modifier = Modifier.fillMaxWidth()) {
                     Text("停止扫描")
                 }
@@ -235,6 +235,7 @@ private fun ScanPanel(
                             state = state,
                             remembered = true,
                             lastSocPercent = saved.lastSocPercent,
+                            openDetails = showDashboard,
                             connect = { connect(saved.address) },
                             disconnect = disconnect
                         )
@@ -264,6 +265,7 @@ private fun ScanPanel(
                             device = device,
                             state = state,
                             remembered = false,
+                            openDetails = showDashboard,
                             connect = { connect(device.address) },
                             disconnect = disconnect
                         )
@@ -306,6 +308,7 @@ private fun ConnectionDeviceRow(
     state: BmsUiState,
     remembered: Boolean,
     lastSocPercent: Int? = null,
+    openDetails: () -> Unit,
     connect: () -> Unit,
     disconnect: () -> Unit
 ) {
@@ -327,7 +330,13 @@ private fun ConnectionDeviceRow(
     val anotherDeviceBusy = state.connectedAddress != null && !isCurrent &&
         state.phase != ConnectionPhase.Idle && state.phase != ConnectionPhase.Error
     Card(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = if (remembered) 20.dp else 0.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = if (remembered) 20.dp else 0.dp)
+            .clickable(
+                enabled = isCurrent && state.phase == ConnectionPhase.Ready,
+                onClick = openDetails
+            ),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         shape = RoundedCornerShape(16.dp)
     ) {

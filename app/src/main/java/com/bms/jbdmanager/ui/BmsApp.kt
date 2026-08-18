@@ -58,6 +58,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.Modifier
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -169,7 +170,9 @@ private fun AppHeader(state: BmsUiState, refreshNearby: () -> Unit) {
         Image(
             painter = painterResource(R.mipmap.ic_launcher_legacy),
             contentDescription = "JBD BMS 应用图标",
-            modifier = Modifier.size(34.dp)
+            modifier = Modifier
+                .size(34.dp)
+                .clip(RoundedCornerShape(9.dp))
         )
         Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) {

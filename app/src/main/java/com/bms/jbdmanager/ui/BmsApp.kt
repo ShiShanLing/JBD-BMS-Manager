@@ -1,5 +1,11 @@
 package com.bms.jbdmanager.ui
 
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -52,6 +58,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.Modifier
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -144,6 +151,15 @@ fun BmsApp(
 
 @Composable
 private fun AppHeader(state: BmsUiState, refreshNearby: () -> Unit) {
+    val refreshRotation by rememberInfiniteTransition(label = "refreshRotation").animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 1_000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "refreshRotationAngle"
+    )
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -166,7 +182,9 @@ private fun AppHeader(state: BmsUiState, refreshNearby: () -> Unit) {
                 contentDescription = if (state.isScanning) "停止扫描" else "刷新附近设备",
                 tint = if (state.isScanning) MaterialTheme.colorScheme.secondary
                 else MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(38.dp)
+                modifier = Modifier
+                    .size(38.dp)
+                    .rotate(if (state.isScanning) refreshRotation else 0f)
             )
         }
         Spacer(Modifier.width(6.dp))

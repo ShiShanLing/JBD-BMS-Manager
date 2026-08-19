@@ -255,7 +255,7 @@ class TripTrackingService : Service(), LocationListener {
             .setContentTitle("SOC $soc% · $currentText")
             .setContentText(summary)
             .setStyle(NotificationCompat.BigTextStyle().bigText(details))
-            .setShortCriticalText("$soc%")
+            .setShortCriticalText("SOC $soc%")
             .setRequestPromotedOngoing(true)
             .setOngoing(true)
             .setOnlyAlertOnce(true)

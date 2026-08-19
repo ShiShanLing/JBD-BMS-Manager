@@ -18,6 +18,7 @@ import com.bms.jbdmanager.protocol.JbdMessage
 import com.bms.jbdmanager.protocol.JbdProtocol
 import com.bms.jbdmanager.protocol.JbdProtocol.toHex
 import com.bms.jbdmanager.storage.SavedDeviceStore
+import com.bms.jbdmanager.storage.LastSnapshotStore
 import com.bms.jbdmanager.trip.TripTracker
 import com.bms.jbdmanager.trip.TripTrackingService
 import com.bms.jbdmanager.trip.GpsSpeedTracker
@@ -33,11 +34,13 @@ import kotlinx.coroutines.launch
 class BmsViewModel(application: Application) : AndroidViewModel(application), JbdBleListener {
     private val savedDeviceStore = SavedDeviceStore(application)
     private val savedDeviceSnapshot = savedDeviceStore.load()
+    private val lastSnapshotStore = LastSnapshotStore(application)
     private val _uiState = MutableStateFlow(
         BmsUiState(
             savedDevices = savedDeviceSnapshot.devices,
             lastDeviceAddress = savedDeviceSnapshot.lastAddress,
-            lastDeviceName = savedDeviceSnapshot.lastName
+            lastDeviceName = savedDeviceSnapshot.lastName,
+            lastSnapshot = lastSnapshotStore.load()
         )
     )
     val uiState: StateFlow<BmsUiState> = _uiState.asStateFlow()
@@ -125,6 +128,7 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
     }
 
     fun disconnect() {
+        saveLastSnapshot()
         manualDisconnect = true
         cancelReconnect()
         finishTripTracking()
@@ -144,6 +148,7 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
     }
 
     fun shutdownAll() {
+        saveLastSnapshot()
         manualDisconnect = true
         autoConnectAttempted = true
         cancelReconnect()
@@ -179,6 +184,11 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
     fun clearLogs() = _uiState.update { it.copy(logs = emptyList()) }
 
     fun dismissError() = _uiState.update { it.copy(errorMessage = null) }
+
+    fun saveLastSnapshot() {
+        val snapshot = lastSnapshotStore.save(_uiState.value) ?: return
+        _uiState.update { it.copy(lastSnapshot = snapshot) }
+    }
 
     fun startRangeTest(targetSpeedKmh: Int) {
         val state = _uiState.value
@@ -328,6 +338,7 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
     }
 
     override fun onDisconnected(reason: String?) {
+        saveLastSnapshot()
         gpsSpeedTracker.reset()
         val address = _uiState.value.connectedAddress
         val name = _uiState.value.connectedName

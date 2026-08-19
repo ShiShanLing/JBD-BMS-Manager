@@ -266,6 +266,7 @@ data class BmsUiState(
     val locationPermissionGranted: Boolean = false,
     val trip: TripState = TripState(),
     val gpsSpeed: GpsSpeedState = GpsSpeedState(),
+    val lastSnapshot: LastBmsSnapshot? = null,
     val logs: List<RawLogEntry> = emptyList(),
     val errorMessage: String? = null
 )

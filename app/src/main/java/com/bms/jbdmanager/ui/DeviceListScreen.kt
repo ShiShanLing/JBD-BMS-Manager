@@ -35,7 +35,11 @@ import com.bms.jbdmanager.model.DataFreshness
 import com.bms.jbdmanager.model.ScanDevice
 
 @Composable
-internal fun AppHeader(state: BmsUiState, onRequestExit: () -> Unit) {
+internal fun AppHeader(
+    state: BmsUiState,
+    onShowLastSnapshot: (() -> Unit)?,
+    onRequestExit: () -> Unit
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -53,6 +57,20 @@ internal fun AppHeader(state: BmsUiState, onRequestExit: () -> Unit) {
         Column(Modifier.weight(1f)) {
             Text("JBD BMS", fontWeight = FontWeight.Bold, fontSize = 17.sp)
             Text("安全只读监控", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 10.sp)
+        }
+        if (onShowLastSnapshot != null) {
+            IconButton(
+                onClick = onShowLastSnapshot,
+                modifier = Modifier.size(42.dp)
+            ) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_history),
+                    contentDescription = "查看最后一次状态",
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(25.dp)
+                )
+            }
+            Spacer(Modifier.width(12.dp))
         }
         StatusBadge(state)
         Spacer(Modifier.width(4.dp))

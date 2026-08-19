@@ -33,6 +33,7 @@ fun BmsApp(
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
     var showDashboard by rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
+    var showLastSnapshot by rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
     var locationPermissionRequestedForConnection by rememberSaveable {
         androidx.compose.runtime.mutableStateOf(false)
     }
@@ -47,7 +48,10 @@ fun BmsApp(
 
     LaunchedEffect(state.phase) {
         when (state.phase) {
-            ConnectionPhase.Ready -> showDashboard = true
+            ConnectionPhase.Ready -> {
+                showLastSnapshot = false
+                showDashboard = true
+            }
             ConnectionPhase.Idle, ConnectionPhase.Error -> showDashboard = false
             else -> Unit
         }
@@ -74,10 +78,19 @@ fun BmsApp(
                 .padding(padding)
                 .statusBarsPadding()
         ) {
-            if (showDashboard && state.phase == ConnectionPhase.Ready) {
+            val lastSnapshot = state.lastSnapshot
+            if (showLastSnapshot && lastSnapshot != null) {
+                LastSnapshotScreen(
+                    snapshot = lastSnapshot,
+                    onBack = { showLastSnapshot = false }
+                )
+            } else if (showDashboard && state.phase == ConnectionPhase.Ready) {
                 Dashboard(
                     state = state,
-                    onShowDevices = { showDashboard = false },
+                    onShowDevices = {
+                        viewModel.saveLastSnapshot()
+                        showDashboard = false
+                    },
                     onClearLogs = viewModel::clearLogs,
                     onSubmitPassword = viewModel::submitBluetoothPassword,
                     onRequestLocationPermission = requestLocationPermission,
@@ -95,7 +108,15 @@ fun BmsApp(
                         else -> viewModel.startScan()
                     }
                 }
-                AppHeader(state = state, onRequestExit = { showExitConfirmation = true })
+                AppHeader(
+                    state = state,
+                    onShowLastSnapshot = if (state.lastSnapshot != null) {
+                        { showLastSnapshot = true }
+                    } else {
+                        null
+                    },
+                    onRequestExit = { showExitConfirmation = true }
+                )
                 ScanPanel(
                     state = state,
                     connect = viewModel::connect,

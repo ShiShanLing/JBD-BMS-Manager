@@ -115,7 +115,7 @@ object JbdProtocol {
             data.u16(extraOffset) * capacityScaleAh
         } else null
         if (fullChargeCapacity != null) extraOffset += 2
-        // Some V12 frames repeat remaining capacity after FCC; it is retained in raw logs.
+        // Some V12 frames repeat remaining capacity after FCC; skip that duplicate field.
         if (data.size >= extraOffset + 2) extraOffset += 2
         val balancingCurrent = if (data.size >= extraOffset + 2) data.s16(extraOffset) else null
 

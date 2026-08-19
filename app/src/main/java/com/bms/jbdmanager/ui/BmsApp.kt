@@ -28,7 +28,8 @@ fun BmsApp(
     exitApp: () -> Unit,
     requestPermissions: () -> Unit,
     requestEnableBluetooth: () -> Unit,
-    requestLocationPermission: () -> Unit
+    requestLocationPermission: () -> Unit,
+    installApk: (String) -> Unit
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
@@ -38,12 +39,25 @@ fun BmsApp(
         androidx.compose.runtime.mutableStateOf(false)
     }
     var showExitConfirmation by remember { androidx.compose.runtime.mutableStateOf(false) }
+    var showAppVersion by remember { androidx.compose.runtime.mutableStateOf(false) }
 
     LaunchedEffect(state.errorMessage) {
         state.errorMessage?.let {
             snackbar.showSnackbar(it)
             viewModel.dismissError()
         }
+    }
+
+    LaunchedEffect(state.appUpdate.statusMessage) {
+        state.appUpdate.statusMessage?.let {
+            snackbar.showSnackbar(it)
+            viewModel.dismissAppUpdateStatus()
+        }
+    }
+
+    LaunchedEffect(state.appUpdate.installRequestId, state.appUpdate.apkFilePath) {
+        val path = state.appUpdate.apkFilePath ?: return@LaunchedEffect
+        if (state.appUpdate.installRequestId > 0) installApk(path)
     }
 
     LaunchedEffect(state.phase) {
@@ -91,13 +105,13 @@ fun BmsApp(
                         viewModel.saveLastSnapshot()
                         showDashboard = false
                     },
-                    onClearLogs = viewModel::clearLogs,
                     onSubmitPassword = viewModel::submitBluetoothPassword,
                     onRequestLocationPermission = requestLocationPermission,
                     onRequestExit = { showExitConfirmation = true },
                     onArmBrakeTest = viewModel::armBrakeTest,
                     onCancelBrakeTest = viewModel::cancelBrakeTest,
-                    onClearSpeedRangeStats = viewModel::clearSpeedRangeStats
+                    onClearSpeedRangeStats = viewModel::clearSpeedRangeStats,
+                    onShowAppVersion = { showAppVersion = true }
                 )
             } else {
                 val refreshNearby: () -> Unit = {
@@ -115,7 +129,8 @@ fun BmsApp(
                     } else {
                         null
                     },
-                    onRequestExit = { showExitConfirmation = true }
+                    onRequestExit = { showExitConfirmation = true },
+                    onShowAppVersion = { showAppVersion = true }
                 )
                 ScanPanel(
                     state = state,
@@ -126,6 +141,22 @@ fun BmsApp(
                 )
             }
         }
+    }
+    if (showAppVersion) {
+        AppVersionDialog(
+            state = state.appUpdate,
+            onDismiss = { if (!state.appUpdate.downloading) showAppVersion = false },
+            onUpdate = viewModel::startAppUpdateDownload,
+            onCheck = { viewModel.checkForAppUpdate(silent = true, allowPrompt = false) }
+        )
+    }
+    if (state.appUpdate.showPrompt && state.appUpdate.available != null && !showAppVersion) {
+        AppUpdateDialog(
+            state = state.appUpdate,
+            onDismiss = viewModel::dismissAppUpdate,
+            onSkip = viewModel::skipAppUpdate,
+            onUpdate = viewModel::startAppUpdateDownload
+        )
     }
     if (showExitConfirmation) {
         AlertDialog(

@@ -1,5 +1,7 @@
 package com.bms.jbdmanager.model
 
+import com.bms.jbdmanager.update.AppUpdateState
+
 data class BmsBasicInfo(
     val totalVoltageV: Double,
     val currentA: Double,
@@ -64,15 +66,6 @@ enum class DataFreshness {
     Waiting,
     Fresh,
     Stale
-}
-
-data class RawLogEntry(
-    val timestampMillis: Long,
-    val direction: Direction,
-    val hex: String,
-    val note: String
-) {
-    enum class Direction { Tx, Rx, Info, Error }
 }
 
 data class RangeTestState(
@@ -267,6 +260,6 @@ data class BmsUiState(
     val trip: TripState = TripState(),
     val gpsSpeed: GpsSpeedState = GpsSpeedState(),
     val lastSnapshot: LastBmsSnapshot? = null,
-    val logs: List<RawLogEntry> = emptyList(),
-    val errorMessage: String? = null
+    val errorMessage: String? = null,
+    val appUpdate: AppUpdateState = AppUpdateState(currentVersionName = "", currentVersionCode = 0)
 )

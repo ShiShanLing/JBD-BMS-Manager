@@ -26,23 +26,22 @@ import com.bms.jbdmanager.model.DataFreshness
 internal fun Dashboard(
     state: BmsUiState,
     onShowDevices: () -> Unit,
-    onClearLogs: () -> Unit,
     onSubmitPassword: (String) -> Boolean,
     onRequestLocationPermission: () -> Unit,
     onRequestExit: () -> Unit,
     onArmBrakeTest: (Int) -> Unit,
     onCancelBrakeTest: () -> Unit,
-    onClearSpeedRangeStats: () -> Unit
+    onClearSpeedRangeStats: () -> Unit,
+    onShowAppVersion: () -> Unit
 ) {
     var tab by remember { mutableIntStateOf(0) }
     Column(Modifier.fillMaxSize()) {
-        DeviceSummary(state, onShowDevices, onSubmitPassword, onRequestExit)
+        DeviceSummary(state, onShowDevices, onSubmitPassword, onRequestExit, onShowAppVersion)
         TabSelector(tab) { tab = it }
         when (tab) {
             0 -> Overview(state, onRequestLocationPermission)
             1 -> RangeTestPage(state, onRequestLocationPermission, onClearSpeedRangeStats)
-            2 -> BrakeTestPage(state, onArmBrakeTest, onCancelBrakeTest)
-            else -> LogsPanel(state.logs, onClearLogs)
+            else -> BrakeTestPage(state, onArmBrakeTest, onCancelBrakeTest)
         }
     }
 }
@@ -51,7 +50,8 @@ private fun DeviceSummary(
     state: BmsUiState,
     onShowDevices: () -> Unit,
     onSubmitPassword: (String) -> Boolean,
-    onRequestExit: () -> Unit
+    onRequestExit: () -> Unit,
+    onShowAppVersion: () -> Unit
 ) {
     var showSettings by remember { androidx.compose.runtime.mutableStateOf(false) }
     LaunchedEffect(state.authenticationRequired) {
@@ -101,7 +101,8 @@ private fun DeviceSummary(
         DeviceSettingsDialog(
             state = state,
             onDismiss = { showSettings = false },
-            onSubmitPassword = onSubmitPassword
+            onSubmitPassword = onSubmitPassword,
+            onShowAppVersion = onShowAppVersion
         )
     }
 }
@@ -110,7 +111,8 @@ private fun DeviceSummary(
 private fun DeviceSettingsDialog(
     state: BmsUiState,
     onDismiss: () -> Unit,
-    onSubmitPassword: (String) -> Boolean
+    onSubmitPassword: (String) -> Boolean,
+    onShowAppVersion: () -> Unit
 ) {
     var password by rememberSaveable { androidx.compose.runtime.mutableStateOf("") }
     AlertDialog(
@@ -128,6 +130,24 @@ private fun DeviceSettingsDialog(
                 DialogInfoRow("识别协议", state.detectedProtocol ?: "等待有效BMS响应")
                 state.bleChannelDetails?.let { DialogInfoRow("连接诊断", it) }
                 DialogInfoRow("操作模式", "安全只读")
+                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f))
+                DialogInfoRow("App 版本", "v${state.appUpdate.currentVersionName}（${state.appUpdate.currentVersionCode}）")
+                if (state.appUpdate.hasNewerVersion) {
+                    Text(
+                        "发现新版本 ${state.appUpdate.latest?.versionName}",
+                        color = MaterialTheme.colorScheme.secondary,
+                        fontSize = 12.sp
+                    )
+                }
+                OutlinedButton(
+                    onClick = {
+                        onDismiss()
+                        onShowAppVersion()
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("查看 App 版本")
+                }
                 if (state.authenticationRequired) {
                     HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f))
                     Text(
@@ -168,7 +188,7 @@ private fun DialogInfoRow(label: String, value: String) {
 
 @Composable
 private fun TabSelector(selected: Int, onSelect: (Int) -> Unit) {
-    val labels = listOf("概览", "续航测试", "刹车测试", "通信日志")
+    val labels = listOf("概览", "续航测试", "刹车测试")
     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         labels.forEachIndexed { index, label ->
             val active = index == selected

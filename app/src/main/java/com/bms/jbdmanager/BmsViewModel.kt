@@ -11,17 +11,20 @@ import com.bms.jbdmanager.model.BmsUiState
 import com.bms.jbdmanager.model.ConnectionPhase
 import com.bms.jbdmanager.model.DataFreshness
 import com.bms.jbdmanager.model.GpsSpeedState
-import com.bms.jbdmanager.model.RawLogEntry
 import com.bms.jbdmanager.model.ScanDevice
 import com.bms.jbdmanager.protocol.JbdFrameAssembler
 import com.bms.jbdmanager.protocol.JbdMessage
 import com.bms.jbdmanager.protocol.JbdProtocol
-import com.bms.jbdmanager.protocol.JbdProtocol.toHex
+import com.bms.jbdmanager.storage.AppUpdateStore
 import com.bms.jbdmanager.storage.SavedDeviceStore
 import com.bms.jbdmanager.storage.LastSnapshotStore
 import com.bms.jbdmanager.trip.TripTracker
 import com.bms.jbdmanager.trip.TripTrackingService
 import com.bms.jbdmanager.trip.GpsSpeedTracker
+import com.bms.jbdmanager.update.AppUpdateClient
+import com.bms.jbdmanager.update.AppUpdatePolicy
+import com.bms.jbdmanager.update.AppUpdateState
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -30,17 +33,26 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.File
+import kotlin.coroutines.cancellation.CancellationException
 
 class BmsViewModel(application: Application) : AndroidViewModel(application), JbdBleListener {
     private val savedDeviceStore = SavedDeviceStore(application)
     private val savedDeviceSnapshot = savedDeviceStore.load()
     private val lastSnapshotStore = LastSnapshotStore(application)
+    private val appUpdateStore = AppUpdateStore(application)
+    private val appUpdateClient = AppUpdateClient(userAgent = "JbdBmsManager/${BuildConfig.VERSION_NAME}")
     private val _uiState = MutableStateFlow(
         BmsUiState(
             savedDevices = savedDeviceSnapshot.devices,
             lastDeviceAddress = savedDeviceSnapshot.lastAddress,
             lastDeviceName = savedDeviceSnapshot.lastName,
-            lastSnapshot = lastSnapshotStore.load()
+            lastSnapshot = lastSnapshotStore.load(),
+            appUpdate = AppUpdateState(
+                currentVersionName = BuildConfig.VERSION_NAME,
+                currentVersionCode = BuildConfig.VERSION_CODE
+            )
         )
     )
     val uiState: StateFlow<BmsUiState> = _uiState.asStateFlow()
@@ -59,10 +71,8 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
     private var classicProtocolSeen = false
     private var modernAuthSeen = false
     private var v12ExtensionSeen = false
-    private var lastLoggedProtocol: String? = null
-    private var basicMetadataLogged = false
-    private var cellMetadataLogged = false
     private val gpsSpeedTracker = GpsSpeedTracker()
+    private var downloadJob: Job? = null
 
     init {
         TripTracker.initialize(application)
@@ -82,6 +92,7 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
                 updateDataFreshness()
             }
         }
+        checkForAppUpdate(silent = true)
     }
 
     fun setPermissionsGranted(granted: Boolean) {
@@ -181,9 +192,170 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
         return bleManager.sendAuthenticationPassword(password)
     }
 
-    fun clearLogs() = _uiState.update { it.copy(logs = emptyList()) }
-
     fun dismissError() = _uiState.update { it.copy(errorMessage = null) }
+
+    fun checkForAppUpdate(silent: Boolean = false, allowPrompt: Boolean = true) {
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(appUpdate = it.appUpdate.copy(checking = true, statusMessage = null, checkError = null))
+            }
+            runCatching {
+                withContext(Dispatchers.IO) { appUpdateClient.fetchLatest() }
+            }.onSuccess { info ->
+                val newer = info.versionCode > BuildConfig.VERSION_CODE
+                val prompt = allowPrompt && AppUpdatePolicy.shouldPrompt(
+                    info = info,
+                    currentVersionCode = BuildConfig.VERSION_CODE,
+                    skippedVersionCode = appUpdateStore.skippedVersionCode()
+                )
+                _uiState.update { state ->
+                    state.copy(
+                        appUpdate = state.appUpdate.copy(
+                            latest = info,
+                            available = info.takeIf { newer },
+                            showPrompt = prompt,
+                            checking = false,
+                            checkError = null,
+                            statusMessage = when {
+                                silent -> null
+                                newer -> null
+                                else -> "当前已是最新版本 ${BuildConfig.VERSION_NAME}"
+                            }
+                        )
+                    )
+                }
+                if (!silent && newer && allowPrompt) {
+                    _uiState.update { it.copy(appUpdate = it.appUpdate.copy(showPrompt = true)) }
+                }
+            }.onFailure { error ->
+                if (error is CancellationException) throw error
+                _uiState.update { state ->
+                    state.copy(
+                        appUpdate = state.appUpdate.copy(
+                            checking = false,
+                            checkError = error.message ?: "网络异常",
+                            statusMessage = if (silent) null else "检查更新失败：${error.message ?: "网络异常"}"
+                        )
+                    )
+                }
+            }
+        }
+    }
+
+    fun showAppUpdatePrompt() {
+        if (_uiState.value.appUpdate.available != null) {
+            _uiState.update {
+                it.copy(appUpdate = it.appUpdate.copy(showPrompt = true, statusMessage = null))
+            }
+        } else {
+            checkForAppUpdate(silent = false)
+        }
+    }
+
+    fun dismissAppUpdate() {
+        val update = _uiState.value.appUpdate
+        if (update.available?.forceUpdate == true && update.apkFilePath == null) return
+        if (update.downloading) downloadJob?.cancel()
+        _uiState.update {
+            it.copy(appUpdate = it.appUpdate.copy(showPrompt = false, downloading = false))
+        }
+    }
+
+    fun skipAppUpdate() {
+        val available = _uiState.value.appUpdate.available ?: return
+        if (available.forceUpdate) return
+        appUpdateStore.skip(available.versionCode)
+        downloadJob?.cancel()
+        _uiState.update {
+            it.copy(
+                appUpdate = it.appUpdate.copy(
+                    showPrompt = false,
+                    downloading = false,
+                    apkFilePath = null
+                )
+            )
+        }
+    }
+
+    fun startAppUpdateDownload() {
+        val info = _uiState.value.appUpdate.available
+            ?: _uiState.value.appUpdate.latest?.takeIf { it.versionCode > BuildConfig.VERSION_CODE }
+            ?: return
+        val existing = _uiState.value.appUpdate.apkFilePath
+            ?.let(::File)
+            ?.takeIf { it.isFile && it.length() > 0L }
+        if (existing != null) {
+            _uiState.update {
+                it.copy(
+                    appUpdate = it.appUpdate.copy(
+                        installRequestId = it.appUpdate.installRequestId + 1
+                    )
+                )
+            }
+            return
+        }
+        if (_uiState.value.appUpdate.downloading) return
+        downloadJob?.cancel()
+        downloadJob = viewModelScope.launch {
+            val destination = File(getApplication<Application>().cacheDir, "updates/latest.apk")
+            _uiState.update {
+                it.copy(
+                    appUpdate = it.appUpdate.copy(
+                        downloading = true,
+                        progressPercent = 0,
+                        statusMessage = null,
+                        apkFilePath = null
+                    )
+                )
+            }
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    appUpdateClient.download(info.apkUrl, destination) { percent ->
+                        _uiState.update { state ->
+                            state.copy(appUpdate = state.appUpdate.copy(progressPercent = percent))
+                        }
+                    }
+                }
+            }.onSuccess {
+                _uiState.update {
+                    it.copy(
+                        appUpdate = it.appUpdate.copy(
+                            downloading = false,
+                            progressPercent = 100,
+                            apkFilePath = destination.absolutePath,
+                            installRequestId = it.appUpdate.installRequestId + 1
+                        )
+                    )
+                }
+            }.onFailure { error ->
+                if (error is CancellationException) throw error
+                _uiState.update {
+                    it.copy(
+                        appUpdate = it.appUpdate.copy(
+                            downloading = false,
+                            statusMessage = "下载失败：${error.message ?: "网络异常"}"
+                        )
+                    )
+                }
+            }
+        }
+    }
+
+    fun retryAppUpdateInstall() {
+        val path = _uiState.value.appUpdate.apkFilePath ?: return
+        if (!File(path).isFile) return
+        _uiState.update {
+            it.copy(
+                appUpdate = it.appUpdate.copy(
+                    installRequestId = it.appUpdate.installRequestId + 1
+                )
+            )
+        }
+    }
+
+    fun dismissAppUpdateStatus() {
+        _uiState.update { it.copy(appUpdate = it.appUpdate.copy(statusMessage = null)) }
+    }
 
     fun saveLastSnapshot() {
         val snapshot = lastSnapshotStore.save(_uiState.value) ?: return
@@ -199,11 +371,6 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
             !state.trip.isTracking -> onError("GPS 行程尚未开始，请重新连接设备")
             else -> {
                 TripTracker.startRangeTest(targetSpeedKmh, info)
-                addLog(
-                    RawLogEntry.Direction.Info,
-                    "",
-                    "开始 ${targetSpeedKmh}km/h 续航测试，有效速度 ${targetSpeedKmh - 5}–${targetSpeedKmh + 5}km/h"
-                )
             }
         }
     }
@@ -211,7 +378,6 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
     fun finishRangeTest() {
         if (!_uiState.value.trip.rangeTest.isActive) return
         TripTracker.finishRangeTest()
-        addLog(RawLogEntry.Direction.Info, "", "续航测试已结束，结果已保留")
     }
 
     fun armBrakeTest(targetSpeedKmh: Int) {
@@ -223,19 +389,16 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
             targetSpeedKmh !in 10..120 -> onError("目标速度请输入 10–120 km/h")
             else -> {
                 TripTracker.armBrakeTest(targetSpeedKmh)
-                addLog(RawLogEntry.Direction.Info, "", "刹车测试已准备：${targetSpeedKmh}km/h 到停止")
             }
         }
     }
 
     fun cancelBrakeTest() {
         TripTracker.cancelBrakeTest()
-        addLog(RawLogEntry.Direction.Info, "", "刹车测试已取消")
     }
 
     fun clearSpeedRangeStats() {
         TripTracker.clearSpeedRangeStats()
-        addLog(RawLogEntry.Direction.Info, "", "已清空长期累计的续航测试样本")
     }
 
     override fun onBluetoothState(supported: Boolean, enabled: Boolean) {
@@ -244,7 +407,6 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
     }
 
     override fun onScanStarted() {
-        addLog(RawLogEntry.Direction.Info, "", "开始扫描附近 BLE 设备")
         _uiState.update {
             val keepConnection = it.phase == ConnectionPhase.Ready
             it.copy(
@@ -279,13 +441,9 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
         }
         val rememberedName = _uiState.value.savedDevices.firstOrNull { it.address == address }?.name
         val displayName = if (name == "未命名设备" && !rememberedName.isNullOrBlank()) rememberedName else name
-        addLog(RawLogEntry.Direction.Info, "", "正在连接 $displayName ($address)")
         classicProtocolSeen = false
         modernAuthSeen = false
         v12ExtensionSeen = false
-        lastLoggedProtocol = null
-        basicMetadataLogged = false
-        cellMetadataLogged = false
         _uiState.update {
             it.copy(
                 phase = ConnectionPhase.Connecting,
@@ -312,7 +470,6 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
 
     override fun onDiscovering() {
         _uiState.update { it.copy(phase = ConnectionPhase.Discovering) }
-        addLog(RawLogEntry.Direction.Info, "", "已连接，正在发现服务与特征")
     }
 
     override fun onReady(profile: String) {
@@ -329,12 +486,10 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
                 gpsSpeed = GpsSpeedState()
             )
         }
-        addLog(RawLogEntry.Direction.Info, "", "通信就绪：$profile")
     }
 
     override fun onConnectionDiagnostic(message: String) {
         _uiState.update { it.copy(bleChannelDetails = message) }
-        addLog(RawLogEntry.Direction.Info, "", "连接诊断：$message")
     }
 
     override fun onDisconnected(reason: String?) {
@@ -355,36 +510,27 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
                 errorMessage = reason
             )
         }
-        addLog(RawLogEntry.Direction.Info, "", reason?.let { "连接断开：$it" } ?: "连接已断开")
         if (shouldReconnect) address?.let(::scheduleReconnect)
         manualDisconnect = false
     }
 
-    override fun onPacketSent(packet: ByteArray, note: String) {
-        addLog(RawLogEntry.Direction.Tx, packet.toHex(), note)
-    }
+    override fun onPacketSent(packet: ByteArray, note: String) = Unit
 
     override fun onNotification(bytes: ByteArray) {
         if (bytes.size >= 2 && bytes[0].toInt() and 0xFF == 0xFF && bytes[1].toInt() and 0xFF == 0xAA) {
-            addLog(RawLogEntry.Direction.Rx, bytes.toHex(), "检测到 JBD 新版 FF AA 认证报文")
             modernAuthSeen = true
             publishProtocolDiagnosis()
             return
         }
         val frames = frameAssembler.append(bytes)
-        if (frames.isEmpty() && bytes.firstOrNull()?.toInt()?.and(0xFF) != 0xDD) {
-            addLog(RawLogEntry.Direction.Rx, bytes.toHex(), "非标准通知数据")
-        }
         frames.forEach(::handleFrame)
     }
 
     override fun onError(message: String) {
         _uiState.update { it.copy(errorMessage = message) }
-        addLog(RawLogEntry.Direction.Error, "", message)
     }
 
     override fun onCommandTimeout(command: Int, note: String) {
-        addLog(RawLogEntry.Direction.Error, "", note)
         if (command == JbdProtocol.BASIC_INFO || command == JbdProtocol.CELL_VOLTAGES) {
             _uiState.update { state ->
                 if (state.lastValidDataAtMillis == null) state.copy(dataFreshness = DataFreshness.Waiting) else state
@@ -410,17 +556,15 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
                 protocolProfile = "${it.protocolProfile.substringBefore(" ·")} · $profile"
             )
         }
-        addLog(RawLogEntry.Direction.Info, "", "只读身份认证成功：$profile")
     }
 
     private fun handleFrame(raw: ByteArray) {
-        addLog(RawLogEntry.Direction.Rx, raw.toHex(), "BMS 响应")
         val frame = JbdProtocol.decode(raw).getOrElse {
             onError("报文解析失败：${it.message}")
             return
         }
         classicProtocolSeen = true
-        publishProtocolDiagnosis("收到命令 0x${frame.command.toString(16).uppercase().padStart(2, '0')} 的合法 DD/77 响应")
+        publishProtocolDiagnosis()
         bleManager.onProtocolResponse(frame.command, frame.status)
         val message = JbdProtocol.parse(frame).getOrElse {
             onError("数据字段解析失败：${it.message}")
@@ -433,16 +577,7 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
                 val baseLength = 23 + message.value.temperaturesC.size * 2
                 if (frame.data.size > baseLength) {
                     v12ExtensionSeen = true
-                    publishProtocolDiagnosis("基本信息包含 V12 扩展字段，数据长度 ${frame.data.size} 字节")
-                }
-                if (!basicMetadataLogged) {
-                    basicMetadataLogged = true
-                    addLog(
-                        RawLogEntry.Direction.Info,
-                        "",
-                        "设备状态格式：基本信息 ${frame.data.size} 字节，${message.value.cellCount} 串，" +
-                            "${message.value.temperaturesC.size} 个温度探头，软件版本 ${message.value.softwareVersion}"
-                    )
+                    publishProtocolDiagnosis()
                 }
                 _uiState.update {
                     it.copy(
@@ -456,22 +591,6 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
             }
             is JbdMessage.Cells -> {
                 markDataFresh()
-                if (!cellMetadataLogged) {
-                    cellMetadataLogged = true
-                    addLog(
-                        RawLogEntry.Direction.Info,
-                        "",
-                        "单体电压格式：${frame.data.size} 字节，共 ${message.value.millivolts.size} 串"
-                    )
-                }
-                val declaredCount = _uiState.value.basicInfo?.cellCount
-                if (declaredCount != null && declaredCount > 0 && declaredCount != message.value.millivolts.size) {
-                    addLog(
-                        RawLogEntry.Direction.Error,
-                        frame.raw.toHex(),
-                        "串数不一致：基本信息 $declaredCount 串，电压数据 ${message.value.millivolts.size} 串"
-                    )
-                }
                 _uiState.update { it.copy(cells = message.value) }
             }
             is JbdMessage.HardwareVersion -> {
@@ -484,27 +603,11 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
                     )
                 }
                 persistCurrentDevice()
-                addLog(RawLogEntry.Direction.Info, "", "识别到型号：${message.value}")
             }
             is JbdMessage.ChipType -> {
                 _uiState.update { it.copy(chipType = message.value) }
-                addLog(RawLogEntry.Direction.Info, "", "识别到芯片方案：${message.value}")
             }
-            is JbdMessage.Unsupported -> {
-                val reason = when (message.status) {
-                    0x80 -> "设备不支持命令"
-                    0x81 -> "操作无效或需要工厂模式"
-                    0x82 -> "设备报告校验错误"
-                    0x83 -> "蓝牙需要密码认证"
-                    else -> "状态码 0x${message.status.toString(16).uppercase()}"
-                }
-                addLog(RawLogEntry.Direction.Info, frame.raw.toHex(), reason)
-            }
-            is JbdMessage.Unknown -> addLog(
-                RawLogEntry.Direction.Info,
-                message.data.toHex(),
-                "未知只读响应 0x${message.command.toString(16).uppercase()}"
-            )
+            is JbdMessage.Unsupported, is JbdMessage.Unknown -> Unit
         }
         if (frame.command == JbdProtocol.PASSWORD_PAIRING && frame.status == 0) {
             passwordAttempted = false
@@ -514,7 +617,7 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
         }
     }
 
-    private fun publishProtocolDiagnosis(detail: String? = null) {
+    private fun publishProtocolDiagnosis() {
         val protocol = when {
             classicProtocolSeen && v12ExtensionSeen && modernAuthSeen -> "JBD DD/77（V12扩展）+ FF AA新版认证"
             classicProtocolSeen && v12ExtensionSeen -> "JBD DD/77（V12扩展）"
@@ -524,16 +627,6 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
             else -> return
         }
         _uiState.update { it.copy(detectedProtocol = protocol) }
-        if (protocol != lastLoggedProtocol) {
-            lastLoggedProtocol = protocol
-            addLog(
-                RawLogEntry.Direction.Info,
-                "",
-                "协议识别结果：$protocol${detail?.let { "；$it" }.orEmpty()}"
-            )
-        } else if (detail != null) {
-            addLog(RawLogEntry.Direction.Info, "", "协议证据：$detail")
-        }
     }
 
     private fun markDataFresh(lastSocPercent: Int? = null) {
@@ -579,7 +672,6 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
         _uiState.update { it.copy(lastDataAgeSeconds = (age / 1_000).coerceAtLeast(0).toInt()) }
         if (age >= STALE_AFTER_MS && state.dataFreshness != DataFreshness.Stale) {
             _uiState.update { it.copy(dataFreshness = DataFreshness.Stale) }
-            addLog(RawLogEntry.Direction.Error, "", "超过5秒未收到有效数据，实时数据已标记为过期")
         }
         if (age >= RECONNECT_AFTER_STALE_MS && !communicationRecoveryTriggered) {
             communicationRecoveryTriggered = true
@@ -604,7 +696,6 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
                 onError("GPS 行程服务启动失败，请保持 App 在前台并重新连接")
                 return
             }
-            addLog(RawLogEntry.Direction.Info, "", "已连接 BMS，开始记录 GPS 行程")
         }
         TripTracker.updateBms(info)
     }
@@ -613,7 +704,6 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
         if (!TripTracker.state.value.isTracking) return
         TripTracker.finish("蓝牙已手动断开，行程结束")
         getApplication<Application>().stopService(tripServiceIntent)
-        addLog(RawLogEntry.Direction.Info, "", "已结束 GPS 行程记录")
     }
 
     private fun scheduleReconnect(address: String) {
@@ -632,7 +722,6 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
                 delay(1_000)
             }
             if (!manualDisconnect && _uiState.value.permissionsGranted && _uiState.value.bluetoothEnabled) {
-                addLog(RawLogEntry.Direction.Info, "", "第 $reconnectAttempt 次自动重连")
                 bleManager.connect(address)
             } else {
                 _uiState.update {
@@ -648,13 +737,9 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
         _uiState.update { it.copy(reconnectInSeconds = null) }
     }
 
-    private fun addLog(direction: RawLogEntry.Direction, hex: String, note: String) {
-        val entry = RawLogEntry(System.currentTimeMillis(), direction, hex, note)
-        _uiState.update { state -> state.copy(logs = (listOf(entry) + state.logs).take(MAX_LOG_ENTRIES)) }
-    }
-
     override fun onCleared() {
         reconnectJob?.cancel()
+        downloadJob?.cancel()
         bleManager.close()
         super.onCleared()
     }
@@ -666,15 +751,12 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
         val address = saved.lastAddress ?: return
         autoConnectAttempted = true
         manualDisconnect = false
-        val name = saved.lastName.orEmpty().ifBlank { address }
-        addLog(RawLogEntry.Direction.Info, "", "正在自动连接上次设备：$name")
         bleManager.connect(address)
     }
 
     companion object {
         private const val STALE_AFTER_MS = 5_000L
         private const val RECONNECT_AFTER_STALE_MS = 10_000L
-        private const val MAX_LOG_ENTRIES = 1_000
         private val RECONNECT_DELAYS_SECONDS = listOf(2, 5, 10, 30)
     }
 }

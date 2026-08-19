@@ -4,8 +4,10 @@ import android.Manifest
 import android.bluetooth.BluetoothAdapter
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Bundle
 import android.os.Build
+import android.provider.Settings
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -13,8 +15,10 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import com.bms.jbdmanager.ui.BmsApp
 import com.bms.jbdmanager.ui.theme.JbdBmsTheme
+import java.io.File
 
 class MainActivity : ComponentActivity() {
     private val viewModel: BmsViewModel by viewModels()
@@ -34,6 +38,8 @@ class MainActivity : ComponentActivity() {
     private val notificationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { }
+
+    private var pendingInstallAfterPermission = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -75,7 +81,8 @@ class MainActivity : ComponentActivity() {
                                 }
                             }.toTypedArray()
                         )
-                    }
+                    },
+                    installApk = ::installApk
                 )
             }
         }
@@ -92,6 +99,10 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         viewModel.setPermissionsGranted(hasBluetoothPermissions())
         viewModel.setLocationPermissionGranted(hasPreciseLocationPermission())
+        if (pendingInstallAfterPermission && packageManager.canRequestPackageInstalls()) {
+            pendingInstallAfterPermission = false
+            viewModel.retryAppUpdateInstall()
+        }
     }
 
     override fun onStop() {
@@ -114,6 +125,27 @@ class MainActivity : ComponentActivity() {
 
     private fun hasPreciseLocationPermission(): Boolean =
         ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+
+    private fun installApk(path: String) {
+        val apk = File(path).takeIf { it.isFile } ?: return
+        val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", apk)
+        if (packageManager.canRequestPackageInstalls()) {
+            startActivity(
+                Intent(Intent.ACTION_VIEW)
+                    .setDataAndType(uri, "application/vnd.android.package-archive")
+                    .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            )
+        } else {
+            pendingInstallAfterPermission = true
+            startActivity(
+                Intent(
+                    Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                    Uri.parse("package:$packageName")
+                )
+            )
+        }
+    }
 
     companion object {
         const val EXTRA_EXIT_ALL = "com.bms.jbdmanager.EXIT_ALL"

@@ -38,7 +38,8 @@ import com.bms.jbdmanager.model.ScanDevice
 internal fun AppHeader(
     state: BmsUiState,
     onShowLastSnapshot: (() -> Unit)?,
-    onRequestExit: () -> Unit
+    onRequestExit: () -> Unit,
+    onShowAppVersion: () -> Unit
 ) {
     Row(
         modifier = Modifier
@@ -54,10 +55,27 @@ internal fun AppHeader(
                 .clip(RoundedCornerShape(9.dp))
         )
         Spacer(Modifier.width(10.dp))
-        Column(Modifier.weight(1f)) {
+        Column(
+            Modifier
+                .clip(RoundedCornerShape(10.dp))
+                .clickable(onClick = onShowAppVersion)
+                .padding(horizontal = 10.dp, vertical = 4.dp)
+        ) {
             Text("JBD BMS", fontWeight = FontWeight.Bold, fontSize = 17.sp)
-            Text("安全只读监控", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 10.sp)
+            Text(
+                buildString {
+                    append("v${state.appUpdate.currentVersionName} · ${state.appUpdate.currentVersionCode}")
+                    if (state.appUpdate.hasNewerVersion) append(" · 有更新")
+                },
+                color = if (state.appUpdate.hasNewerVersion) {
+                    MaterialTheme.colorScheme.secondary
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
+                fontSize = 10.sp
+            )
         }
+        Spacer(Modifier.weight(1f))
         if (onShowLastSnapshot != null) {
             IconButton(
                 onClick = onShowLastSnapshot,

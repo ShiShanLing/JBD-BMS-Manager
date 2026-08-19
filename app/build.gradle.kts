@@ -25,9 +25,8 @@ android {
         applicationId = "com.bms.jbdmanager"
         minSdk = 31
         targetSdk = 36
-        // Keep versionCode increasing so this APK can update the currently installed app.
-        versionCode = 16
-        versionName = "0.4.5"
+        versionCode = 1
+        versionName = "0.4.6"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

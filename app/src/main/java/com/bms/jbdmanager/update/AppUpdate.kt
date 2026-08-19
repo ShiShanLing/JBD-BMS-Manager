@@ -48,7 +48,9 @@ internal object AppUpdateManifestParser {
         val versionName = requiredString(json, "versionName")
         val apkUrl = requiredString(json, "apkUrl")
         require(versionCode > 0) { "versionCode 无效" }
-        require(apkUrl.startsWith("http://")) { "apkUrl 必须是 http 地址" }
+        require(apkUrl.startsWith("http://") || apkUrl.startsWith("https://")) {
+            "apkUrl 必须是 http 或 https 地址"
+        }
         return AppUpdateInfo(
             versionCode = versionCode,
             versionName = versionName,

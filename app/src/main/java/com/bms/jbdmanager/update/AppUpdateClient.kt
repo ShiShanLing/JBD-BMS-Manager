@@ -73,7 +73,28 @@ internal class AppUpdateClient(
         timeoutMs: Int,
         read: (HttpURLConnection) -> T
     ): T {
-        val connection = (URL(url).openConnection() as HttpURLConnection).apply {
+        var current = url
+        for (attempt in 0 until MAX_REDIRECTS) {
+            val connection = open(current, accept, timeoutMs)
+            try {
+                val code = connection.responseCode
+                if (code in REDIRECT_CODES) {
+                    val location = connection.getHeaderField("Location")?.trim().orEmpty()
+                    if (location.isEmpty()) error("服务器返回 $code，但没有跳转地址")
+                    current = URL(URL(current), location).toString()
+                    continue
+                }
+                if (code !in 200..299) error("服务器返回 $code")
+                return read(connection)
+            } finally {
+                runCatching { connection.disconnect() }
+            }
+        }
+        error("下载跳转次数过多")
+    }
+
+    private fun open(url: String, accept: String, timeoutMs: Int): HttpURLConnection {
+        return (URL(url).openConnection() as HttpURLConnection).apply {
             connectTimeout = TIMEOUT_MS
             readTimeout = timeoutMs
             instanceFollowRedirects = false
@@ -83,18 +104,13 @@ internal class AppUpdateClient(
             setRequestProperty("Connection", "close")
             setRequestProperty("User-Agent", userAgent)
         }
-        try {
-            val code = connection.responseCode
-            if (code !in 200..299) error("服务器返回 $code")
-            return read(connection)
-        } finally {
-            runCatching { connection.disconnect() }
-        }
     }
 
     private companion object {
         const val TIMEOUT_MS = 15_000
         const val DOWNLOAD_TIMEOUT_MS = 300_000
         const val DEFAULT_BUFFER_SIZE = 16 * 1024
+        const val MAX_REDIRECTS = 8
+        val REDIRECT_CODES = setOf(301, 302, 303, 307, 308)
     }
 }

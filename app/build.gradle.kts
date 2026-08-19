@@ -26,8 +26,8 @@ android {
         minSdk = 31
         targetSdk = 36
         // Keep versionCode increasing so this APK can update the currently installed app.
-        versionCode = 15
-        versionName = "0.4.4"
+        versionCode = 16
+        versionName = "0.4.5"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

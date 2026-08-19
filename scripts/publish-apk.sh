@@ -7,6 +7,7 @@ NOTES="${2:-根据当前构建发布。}"
 FORCE="${3:-false}"
 HOST="${UPDATE_HOST:-baidu-bcc}"
 REMOTE_DIR="/var/www/jbd-bms"
+REPO="${GITHUB_REPO:-ShiShanLing/JBD-BMS-Manager}"
 
 if [[ ! -f "$APK" ]]; then
   echo "找不到安装包：$APK" >&2
@@ -22,16 +23,35 @@ if [[ -z "$VERSION_CODE" || -z "$VERSION_NAME" ]]; then
   exit 1
 fi
 
+TAG="v${VERSION_NAME}"
+ASSET_NAME="JBD-BMS-Manager-v${VERSION_NAME}.apk"
+APK_URL="https://github.com/${REPO}/releases/download/${TAG}/${ASSET_NAME}"
+TITLE="JBD BMS v${VERSION_NAME}"
+
+STAGING="$(mktemp -d)"
+trap 'rm -rf "$STAGING"' EXIT
+cp "$APK" "$STAGING/$ASSET_NAME"
+
+if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
+  gh release upload "$TAG" "$STAGING/$ASSET_NAME" --repo "$REPO" --clobber
+  gh release edit "$TAG" --repo "$REPO" --title "$TITLE" --notes "$NOTES"
+else
+  gh release create "$TAG" "$STAGING/$ASSET_NAME" \
+    --repo "$REPO" \
+    --title "$TITLE" \
+    --notes "$NOTES"
+fi
+
 TMP_JSON="$(mktemp)"
-python3 - "$TMP_JSON" "$VERSION_CODE" "$VERSION_NAME" "$NOTES" "$FORCE" <<'PY'
+python3 - "$TMP_JSON" "$VERSION_CODE" "$VERSION_NAME" "$NOTES" "$FORCE" "$APK_URL" <<'PY'
 import json
 import sys
 
-path, version_code, version_name, notes, force = sys.argv[1:]
+path, version_code, version_name, notes, force, apk_url = sys.argv[1:]
 payload = {
     "versionCode": int(version_code),
     "versionName": version_name,
-    "apkUrl": "http://106.13.175.227/jbd-bms/latest.apk",
+    "apkUrl": apk_url,
     "forceUpdate": force.lower() in {"1", "true", "yes", "force"},
     "releaseNotes": notes,
 }
@@ -40,9 +60,10 @@ with open(path, "w", encoding="utf-8") as handle:
     handle.write("\n")
 PY
 
-scp -q "$APK" "$HOST:$REMOTE_DIR/latest.apk"
 scp -q "$TMP_JSON" "$HOST:$REMOTE_DIR/version.json"
 rm -f "$TMP_JSON"
-ssh "$HOST" "chmod 644 '$REMOTE_DIR/latest.apk' '$REMOTE_DIR/version.json'"
+ssh "$HOST" "chmod 644 '$REMOTE_DIR/version.json'"
 
-echo "已发布 v${VERSION_NAME} (versionCode ${VERSION_CODE}) 到 http://106.13.175.227/jbd-bms/version.json"
+echo "已发布 v${VERSION_NAME} (versionCode ${VERSION_CODE})"
+echo "  GitHub: ${APK_URL}"
+echo "  检查更新: http://106.13.175.227/jbd-bms/version.json"

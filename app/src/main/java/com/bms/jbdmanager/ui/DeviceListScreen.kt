@@ -63,7 +63,7 @@ internal fun AppHeader(
                 .clickable(onClick = onShowAppVersion)
                 .padding(horizontal = 10.dp, vertical = 4.dp)
         ) {
-            Text(stringResource(R.string.app_title), fontWeight = FontWeight.Bold, fontSize = 17.sp)
+            Text(stringResource(R.string.app_name), fontWeight = FontWeight.Bold, fontSize = 17.sp)
             Text(
                 buildString {
                     append("v${state.appUpdate.currentVersionName} · ${state.appUpdate.currentVersionCode}")

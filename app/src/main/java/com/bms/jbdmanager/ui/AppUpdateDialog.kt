@@ -5,7 +5,10 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
@@ -18,6 +21,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.bms.jbdmanager.update.AppUpdateEntry
 import com.bms.jbdmanager.update.AppUpdateState
 
 @Composable
@@ -33,15 +37,18 @@ internal fun AppUpdateDialog(
         onDismissRequest = { if (!force && !state.downloading) onDismiss() },
         title = { Text("发现新版本 ${info.versionName}") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(
+                modifier = Modifier
+                    .heightIn(max = 420.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
                 Text(
                     "当前版本 ${state.currentVersionName}",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 12.sp
                 )
-                if (info.releaseNotes.isNotBlank()) {
-                    Text(info.releaseNotes, fontSize = 13.sp)
-                }
+                ChangelogSection(info.notesSince(state.currentVersionCode))
                 if (state.downloading) {
                     LinearProgressIndicator(
                         progress = { state.progressPercent / 100f },
@@ -114,7 +121,12 @@ internal fun AppVersionDialog(
         onDismissRequest = { if (!state.downloading) onDismiss() },
         title = { Text("App 版本") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(
+                modifier = Modifier
+                    .heightIn(max = 420.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
                 VersionInfoRow("当前版本", "v${state.currentVersionName}")
                 VersionInfoRow("内部版本号", state.currentVersionCode.toString())
                 VersionInfoRow(
@@ -130,11 +142,19 @@ internal fun AppVersionDialog(
                         ) { Text("检查更新", fontSize = 12.sp) }
                     }
                 }
-                val notes = latest?.releaseNotes.orEmpty()
-                if (notes.isNotBlank()) {
+                val notes = latest?.let { info ->
+                    if (hasNewer) {
+                        info.notesSince(state.currentVersionCode)
+                    } else {
+                        listOf(
+                            AppUpdateEntry(info.versionCode, info.versionName, info.releaseNotes)
+                        ).filter { it.releaseNotes.isNotBlank() }
+                    }
+                }.orEmpty()
+                if (notes.isNotEmpty()) {
                     HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f))
                     Text("更新说明", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
-                    Text(notes, fontSize = 13.sp)
+                    ChangelogSection(notes)
                 }
                 if (state.downloading) {
                     LinearProgressIndicator(
@@ -171,6 +191,24 @@ internal fun AppVersionDialog(
             }
         }
     )
+}
+
+@Composable
+private fun ChangelogSection(entries: List<AppUpdateEntry>) {
+    if (entries.isEmpty()) return
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        entries.forEach { entry ->
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    "v${entry.versionName}",
+                    color = MaterialTheme.colorScheme.secondary,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 13.sp
+                )
+                Text(entry.releaseNotes, fontSize = 13.sp)
+            }
+        }
+    }
 }
 
 @Composable

@@ -25,8 +25,8 @@ android {
         applicationId = "com.bms.jbdmanager"
         minSdk = 31
         targetSdk = 36
-        versionCode = 32
-        versionName = "0.5.2"
+        versionCode = 33
+        versionName = "0.5.3"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
@@ -82,6 +82,7 @@ dependencies {
     implementation("androidx.compose.material3:material3")
 
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.json:json:20250107")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.6.1")
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")

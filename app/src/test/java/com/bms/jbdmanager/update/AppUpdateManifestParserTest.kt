@@ -27,6 +27,29 @@ class AppUpdateManifestParserTest {
         )
         assertFalse(info.forceUpdate)
         assertEquals("新增 App 更新提示\n修复连接稳定性", info.releaseNotes)
+        assertTrue(info.changelog.isEmpty())
+    }
+
+    @Test
+    fun notesSinceIncludesSkippedVersionsNewestFirst() {
+        val info = AppUpdateManifestParser.parse(
+            """
+            {
+              "versionCode": 33,
+              "versionName": "0.5.3",
+              "apkUrl": "https://example.com/app.apk",
+              "releaseNotes": "更新弹窗会列出跳过的版本说明",
+              "changelog": [
+                {"versionCode": 32, "versionName": "0.5.2", "releaseNotes": "名称改为电动 BMS"},
+                {"versionCode": 30, "versionName": "0.5.0", "releaseNotes": "新增画中画小窗"}
+              ]
+            }
+            """.trimIndent()
+        )
+        val notes = info.notesSince(17)
+        assertEquals(listOf("0.5.3", "0.5.2", "0.5.0"), notes.map { it.versionName })
+        assertEquals(listOf("0.5.3"), info.notesSince(32).map { it.versionName })
+        assertTrue(info.notesSince(33).isEmpty())
     }
 
     @Test

@@ -1,16 +1,34 @@
 package com.bms.jbdmanager.update
 
+import org.json.JSONObject
+
 internal object AppUpdateConfig {
     const val VERSION_URL = "http://106.13.175.227/jbd-bms/version.json"
 }
+
+data class AppUpdateEntry(
+    val versionCode: Int,
+    val versionName: String,
+    val releaseNotes: String = ""
+)
 
 data class AppUpdateInfo(
     val versionCode: Int,
     val versionName: String,
     val apkUrl: String,
     val forceUpdate: Boolean = false,
-    val releaseNotes: String = ""
-)
+    val releaseNotes: String = "",
+    val changelog: List<AppUpdateEntry> = emptyList()
+) {
+    fun notesSince(currentVersionCode: Int): List<AppUpdateEntry> =
+        buildList {
+            add(AppUpdateEntry(versionCode, versionName, releaseNotes))
+            addAll(changelog)
+        }
+            .filter { it.versionCode > currentVersionCode && it.releaseNotes.isNotBlank() }
+            .distinctBy { it.versionCode }
+            .sortedByDescending { it.versionCode }
+}
 
 data class AppUpdateState(
     val currentVersionName: String,
@@ -44,65 +62,38 @@ internal object AppUpdatePolicy {
 
 internal object AppUpdateManifestParser {
     fun parse(json: String): AppUpdateInfo {
-        val versionCode = requiredInt(json, "versionCode")
-        val versionName = requiredString(json, "versionName")
-        val apkUrl = requiredString(json, "apkUrl")
+        val obj = JSONObject(json)
+        val versionCode = obj.getInt("versionCode")
+        val versionName = obj.getString("versionName").trim()
+        val apkUrl = obj.getString("apkUrl").trim()
         require(versionCode > 0) { "versionCode 无效" }
+        require(versionName.isNotEmpty()) { "缺少 versionName" }
         require(apkUrl.startsWith("http://") || apkUrl.startsWith("https://")) {
             "apkUrl 必须是 http 或 https 地址"
+        }
+        val changelog = mutableListOf<AppUpdateEntry>()
+        val array = obj.optJSONArray("changelog")
+        if (array != null) {
+            for (index in 0 until array.length()) {
+                val item = array.optJSONObject(index) ?: continue
+                val code = item.optInt("versionCode", 0)
+                if (code <= 0) continue
+                changelog.add(
+                    AppUpdateEntry(
+                        versionCode = code,
+                        versionName = item.optString("versionName").trim(),
+                        releaseNotes = item.optString("releaseNotes").trim()
+                    )
+                )
+            }
         }
         return AppUpdateInfo(
             versionCode = versionCode,
             versionName = versionName,
             apkUrl = apkUrl,
-            forceUpdate = optionalBoolean(json, "forceUpdate") ?: false,
-            releaseNotes = optionalString(json, "releaseNotes").orEmpty().trim()
+            forceUpdate = obj.optBoolean("forceUpdate", false),
+            releaseNotes = obj.optString("releaseNotes").trim(),
+            changelog = changelog
         )
-    }
-
-    private fun requiredInt(json: String, key: String): Int =
-        optionalInt(json, key) ?: error("缺少 $key")
-
-    private fun requiredString(json: String, key: String): String {
-        val value = optionalString(json, key)?.trim().orEmpty()
-        require(value.isNotEmpty()) { "缺少 $key" }
-        return value
-    }
-
-    private fun optionalInt(json: String, key: String): Int? {
-        val match = """"$key"\s*:\s*(-?\d+)""".toRegex().find(json) ?: return null
-        return match.groupValues[1].toInt()
-    }
-
-    private fun optionalBoolean(json: String, key: String): Boolean? {
-        val match = """"$key"\s*:\s*(true|false)""".toRegex().find(json) ?: return null
-        return match.groupValues[1].toBooleanStrict()
-    }
-
-    private fun optionalString(json: String, key: String): String? {
-        val match = """"$key"\s*:\s*"((?:\\.|[^"\\])*)"""".toRegex().find(json) ?: return null
-        return unescape(match.groupValues[1])
-    }
-
-    private fun unescape(value: String): String = buildString(value.length) {
-        var index = 0
-        while (index < value.length) {
-            val char = value[index]
-            if (char != '\\' || index == value.lastIndex) {
-                append(char)
-                index += 1
-                continue
-            }
-            when (val escaped = value[index + 1]) {
-                'n' -> append('\n')
-                't' -> append('\t')
-                'r' -> append('\r')
-                '"' -> append('"')
-                '\\' -> append('\\')
-                '/' -> append('/')
-                else -> append(escaped)
-            }
-            index += 2
-        }
     }
 }

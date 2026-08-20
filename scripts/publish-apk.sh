@@ -43,18 +43,76 @@ else
 fi
 
 TMP_JSON="$(mktemp)"
-python3 - "$TMP_JSON" "$VERSION_CODE" "$VERSION_NAME" "$NOTES" "$FORCE" "$APK_URL" <<'PY'
+VERSION_URL="${VERSION_URL:-http://106.13.175.227/jbd-bms/version.json}"
+python3 - "$TMP_JSON" "$VERSION_CODE" "$VERSION_NAME" "$NOTES" "$FORCE" "$APK_URL" "$VERSION_URL" <<'PY'
 import json
 import sys
+import urllib.request
 
-path, version_code, version_name, notes, force, apk_url = sys.argv[1:]
+path, version_code, version_name, notes, force, apk_url, version_url = sys.argv[1:]
+new_code = int(version_code)
 payload = {
-    "versionCode": int(version_code),
+    "versionCode": new_code,
     "versionName": version_name,
     "apkUrl": apk_url,
     "forceUpdate": force.lower() in {"1", "true", "yes", "force"},
     "releaseNotes": notes,
 }
+
+known = {
+    32: ("0.5.2", "应用名称统一为「电动 BMS」，桌面图标与 App 内标题一致。"),
+    31: ("0.5.1", "应用名称改为电动BMS，桌面图标用短名，App 内标题为「电动 BMS」。"),
+    30: (
+        "0.5.0",
+        "新增画中画小窗：连上 BMS 后按 Home 或点详情页右下角按钮进入，骑行/充电自动切换，关闭小窗回到后台。\n"
+        "新增保护参数只读页。\n"
+        "充电判断改为静置且电流大于 7A，避免把动能回收当成插枪充电。",
+    ),
+}
+
+changelog = []
+seen = {new_code}
+old = None
+try:
+    with urllib.request.urlopen(version_url, timeout=15) as response:
+        old = json.load(response)
+except Exception:
+    old = None
+
+if isinstance(old, dict):
+    previous_code = int(old.get("versionCode") or 0)
+    if previous_code > 0 and previous_code not in seen:
+        changelog.append({
+            "versionCode": previous_code,
+            "versionName": str(old.get("versionName") or ""),
+            "releaseNotes": str(old.get("releaseNotes") or ""),
+        })
+        seen.add(previous_code)
+    for item in old.get("changelog") or []:
+        if not isinstance(item, dict):
+            continue
+        code = int(item.get("versionCode") or 0)
+        if code <= 0 or code in seen:
+            continue
+        changelog.append({
+            "versionCode": code,
+            "versionName": str(item.get("versionName") or ""),
+            "releaseNotes": str(item.get("releaseNotes") or ""),
+        })
+        seen.add(code)
+
+for code, (name, text) in sorted(known.items(), reverse=True):
+    if code < new_code and code not in seen:
+        changelog.append({
+            "versionCode": code,
+            "versionName": name,
+            "releaseNotes": text,
+        })
+        seen.add(code)
+
+changelog.sort(key=lambda item: item["versionCode"], reverse=True)
+payload["changelog"] = changelog[:20]
+
 with open(path, "w", encoding="utf-8") as handle:
     json.dump(payload, handle, ensure_ascii=False, indent=2)
     handle.write("\n")

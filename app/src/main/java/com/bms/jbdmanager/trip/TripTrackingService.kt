@@ -22,6 +22,7 @@ import androidx.core.content.ContextCompat
 import com.bms.jbdmanager.MainActivity
 import com.bms.jbdmanager.R
 import com.bms.jbdmanager.model.TripState
+import com.bms.jbdmanager.model.isStationaryCharging
 import java.util.Locale
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -223,7 +224,9 @@ class TripTrackingService : Service(), LocationListener {
         val soc = state.currentSocPercent ?: state.startSocPercent ?: 0
         val currentText = when {
             state.currentA < -0.05 -> "放电 ${decimal(state.currentA, 1)}A"
-            state.currentA > 0.05 -> "充电 +${decimal(state.currentA, 1)}A"
+            isStationaryCharging(state.currentA, state.currentSpeedKmh) ->
+                "充电 +${decimal(state.currentA, 1)}A"
+            state.currentA > 0.05 -> "回收 +${decimal(state.currentA, 1)}A"
             else -> "静置 0.0A"
         }
         val rangeText = state.estimatedRemainingKm?.let { "${decimal(it, 1)} km" } ?: "采集中"

@@ -39,7 +39,8 @@ internal fun AppHeader(
     state: BmsUiState,
     onShowLastSnapshot: (() -> Unit)?,
     onRequestExit: () -> Unit,
-    onShowAppVersion: () -> Unit
+    onShowAppVersion: () -> Unit,
+    isPreview: Boolean = false
 ) {
     Row(
         modifier = Modifier
@@ -76,6 +77,17 @@ internal fun AppHeader(
             )
         }
         Spacer(Modifier.weight(1f))
+        if (isPreview) {
+            Surface(color = MaterialTheme.colorScheme.secondary.copy(alpha = 0.15f), shape = CircleShape) {
+                Text(
+                    "演示",
+                    color = MaterialTheme.colorScheme.secondary,
+                    modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp),
+                    fontSize = 10.sp
+                )
+            }
+            Spacer(Modifier.width(8.dp))
+        }
         if (onShowLastSnapshot != null) {
             IconButton(
                 onClick = onShowLastSnapshot,
@@ -125,7 +137,8 @@ internal fun ScanPanel(
     connect: (String) -> Unit,
     disconnect: () -> Unit,
     refreshNearby: () -> Unit,
-    showDashboard: () -> Unit
+    showDashboard: () -> Unit,
+    showPreview: () -> Unit
 ) {
     Column(Modifier.fillMaxSize()) {
         Column(Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) {
@@ -146,6 +159,10 @@ internal fun ScanPanel(
                 state.phase == ConnectionPhase.Disconnecting ->
                     InfoCard("正在断开设备…", MaterialTheme.colorScheme.onSurfaceVariant)
                 else -> Unit
+            }
+            Spacer(Modifier.height(10.dp))
+            OutlinedButton(onClick = showPreview, modifier = Modifier.fillMaxWidth()) {
+                Text("预览详情（测试数据）")
             }
         }
 

@@ -85,4 +85,43 @@ class TripStateTest {
         assertEquals(28.0, stats.whPerKm!!, 0.0001)
         assertEquals(50.0, stats.estimatedRemainingKm(25.0)!!, 0.0001)
     }
+
+    @Test
+    fun historicalEstimateUsesMatchingSpeedBucketWhenAvailable() {
+        val trip = TripState(
+            currentRemainingAh = 20.0,
+            currentSpeedKmh = 40.2,
+            speedRangeStats = defaultSpeedRangeStats().map { stats ->
+                if (stats.targetSpeedKmh != 40) stats else stats.copy(
+                    effectiveDistanceMeters = 12_000.0,
+                    consumedAh = 4.0
+                )
+            }
+        )
+
+        val estimate = trip.historicalRangeEstimate()
+        assertEquals(60.0, estimate!!.remainingKm, 0.0001)
+        assertEquals("40km/h 档", estimate.sourceLabel)
+        assertEquals("初步估算", estimate.confidence)
+    }
+
+    @Test
+    fun historicalEstimateFallsBackToBlendedBuckets() {
+        val trip = TripState(
+            currentRemainingAh = 15.0,
+            currentSpeedKmh = 0.0,
+            speedRangeStats = defaultSpeedRangeStats().map { stats ->
+                when (stats.targetSpeedKmh) {
+                    30 -> stats.copy(effectiveDistanceMeters = 10_000.0, consumedAh = 4.0)
+                    50 -> stats.copy(effectiveDistanceMeters = 10_000.0, consumedAh = 6.0)
+                    else -> stats
+                }
+            }
+        )
+
+        val estimate = trip.historicalRangeEstimate()
+        assertEquals(30.0, estimate!!.remainingKm, 0.0001)
+        assertEquals("综合历史", estimate.sourceLabel)
+        assertEquals(50.0, estimate.ahPer100Km!!, 0.0001)
+    }
 }

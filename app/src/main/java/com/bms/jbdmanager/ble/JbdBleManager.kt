@@ -401,6 +401,7 @@ class JbdBleManager(
         enqueueRead(JbdProtocol.CELL_VOLTAGES, "读取单体电压")
         enqueueRead(JbdProtocol.HARDWARE_VERSION, "识别硬件型号")
         enqueueRead(JbdProtocol.CHIP_TYPE, "识别芯片方案")
+        enqueueProtectionParams()
         polling = true
         handler.postDelayed(pollRunnable, 1_000)
     }
@@ -632,6 +633,21 @@ class JbdBleManager(
         enqueueRead(JbdProtocol.BASIC_INFO, "认证后读取基本状态")
         enqueueRead(JbdProtocol.CELL_VOLTAGES, "认证后读取单体电压")
         enqueueRead(JbdProtocol.HARDWARE_VERSION, "认证后识别硬件型号")
+        enqueueProtectionParams()
+    }
+
+    fun readProtectionParameters() {
+        handler.post { enqueueProtectionParams() }
+    }
+
+    private fun enqueueProtectionParams() {
+        enqueueCommand(
+            PendingCommand(
+                JbdProtocol.READ_PARAMETERS,
+                JbdProtocol.readParametersCommand(startRegister = 2, count = 24),
+                "读取保护参数"
+            )
+        )
     }
 
     private fun discoverServices(gatt: BluetoothGatt) {

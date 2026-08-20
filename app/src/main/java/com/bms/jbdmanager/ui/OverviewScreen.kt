@@ -2,14 +2,20 @@ package com.bms.jbdmanager.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
@@ -40,7 +46,7 @@ internal fun Overview(
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        item { SocHero(info) }
+        item { SocHero(info, state.trip.currentSpeedKmh) }
         item { GpsSpeedPanel(state.gpsSpeed) }
         item {
             val cells = state.cells
@@ -78,7 +84,7 @@ internal fun Overview(
                 )
             )
         }
-        item { TripCard(state.trip, state.locationPermissionGranted, onRequestLocationPermission) }
+        item { TripCard(state.trip, info.remainingCapacityAh, state.locationPermissionGranted, onRequestLocationPermission) }
         item { TemperatureCard(info) }
         item {
             CellsOverviewSection(
@@ -95,6 +101,7 @@ internal fun Overview(
 @Composable
 private fun TripCard(
     trip: TripState,
+    remainingAhHint: Double?,
     locationPermissionGranted: Boolean,
     onRequestLocationPermission: () -> Unit
 ) {
@@ -113,6 +120,7 @@ private fun TripCard(
                 )
             }
             Spacer(Modifier.height(7.dp))
+            var showSpeedRangeDialog by remember { mutableStateOf(false) }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 TripPrimaryMetric(
                     label = "已行驶",
@@ -120,9 +128,17 @@ private fun TripCard(
                     modifier = Modifier.weight(1f)
                 )
                 TripPrimaryMetric(
-                    label = "预计剩余续航",
+                    label = "本次预估续航",
                     value = trip.estimatedRemainingKm?.let { "${compactNumber(it)} km" } ?: "采集中",
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.weight(1f),
+                    onHelp = { showSpeedRangeDialog = true }
+                )
+            }
+            if (showSpeedRangeDialog) {
+                SpeedRangeEstimateDialog(
+                    trip = trip,
+                    remainingAh = trip.currentRemainingAh ?: remainingAhHint,
+                    onDismiss = { showSpeedRangeDialog = false }
                 )
             }
             Spacer(Modifier.height(7.dp))
@@ -226,20 +242,135 @@ private fun GpsSpeedMetric(label: String, value: Double, modifier: Modifier = Mo
 }
 
 @Composable
-private fun TripPrimaryMetric(label: String, value: String, modifier: Modifier = Modifier) {
+private fun TripPrimaryMetric(
+    label: String,
+    value: String,
+    modifier: Modifier = Modifier,
+    onHelp: (() -> Unit)? = null
+) {
     Surface(modifier = modifier, color = MaterialTheme.colorScheme.surface.copy(alpha = 0.58f), shape = RoundedCornerShape(10.dp)) {
         Column(Modifier.padding(horizontal = 10.dp, vertical = 7.dp)) {
-            Text(
-                label,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 12.sp,
-                lineHeight = 14.sp,
-                fontWeight = FontWeight.Medium
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    label,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 12.sp,
+                    lineHeight = 14.sp,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.weight(1f)
+                )
+                if (onHelp != null) {
+                    Box(
+                        modifier = Modifier
+                            .size(22.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.16f))
+                            .clickable(onClick = onHelp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            "?",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            lineHeight = 14.sp
+                        )
+                    }
+                }
+            }
             Spacer(Modifier.height(4.dp))
             Text(value, fontWeight = FontWeight.Bold, fontSize = 20.sp, lineHeight = 22.sp, maxLines = 1)
         }
     }
+}
+
+@Composable
+private fun SpeedRangeEstimateDialog(
+    trip: TripState,
+    remainingAh: Double?,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("各速度预估续航") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(
+                    "按历史速度档电耗，结合当前剩余容量估算。样本不足的档位显示为采集中。",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 12.sp,
+                    lineHeight = 16.sp
+                )
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp, vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        "速度",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.width(72.dp)
+                    )
+                    Text(
+                        "预估续航",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Text(
+                        "样本",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+                trip.speedRangeStats.forEach { stats ->
+                    val active = stats.accepts(trip.currentSpeedKmh)
+                    val remainingKm = stats.estimatedRemainingKm(remainingAh)
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .background(
+                                if (active) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                                else Color.Transparent,
+                                RoundedCornerShape(8.dp)
+                            )
+                            .padding(horizontal = 8.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            "${stats.targetSpeedKmh} km/h",
+                            fontWeight = if (active) FontWeight.Bold else FontWeight.Medium,
+                            fontSize = 13.sp,
+                            modifier = Modifier.width(72.dp)
+                        )
+                        Text(
+                            remainingKm?.let { "${compactNumber(it)} km" } ?: "采集中",
+                            color = if (remainingKm != null) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.sp,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Text(
+                            if (remainingKm != null) {
+                                "${stats.confidence} · ${compactNumber(stats.effectiveDistanceKm)} km"
+                            } else {
+                                "样本 ${compactNumber(stats.effectiveDistanceKm)} km"
+                            },
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = 10.sp
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("关闭") } }
+    )
 }
 
 @Composable

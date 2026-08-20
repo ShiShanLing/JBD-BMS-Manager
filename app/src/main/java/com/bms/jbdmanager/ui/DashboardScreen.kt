@@ -14,13 +14,18 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
+import com.bms.jbdmanager.R
 import com.bms.jbdmanager.model.BmsUiState
 import com.bms.jbdmanager.model.DataFreshness
+import com.bms.jbdmanager.ui.theme.JbdBmsTheme
 
 @Composable
 internal fun Dashboard(
@@ -32,16 +37,45 @@ internal fun Dashboard(
     onArmBrakeTest: (Int) -> Unit,
     onCancelBrakeTest: () -> Unit,
     onClearSpeedRangeStats: () -> Unit,
-    onShowAppVersion: () -> Unit
+    onShowAppVersion: () -> Unit,
+    onRefreshProtectionParams: () -> Unit,
+    onEnterPictureInPicture: () -> Unit = {},
+    isPreview: Boolean = false,
+    initialTab: Int = 0
 ) {
-    var tab by remember { mutableIntStateOf(0) }
-    Column(Modifier.fillMaxSize()) {
-        DeviceSummary(state, onShowDevices, onSubmitPassword, onRequestExit, onShowAppVersion)
-        TabSelector(tab) { tab = it }
-        when (tab) {
-            0 -> Overview(state, onRequestLocationPermission)
-            1 -> RangeTestPage(state, onRequestLocationPermission, onClearSpeedRangeStats)
-            else -> BrakeTestPage(state, onArmBrakeTest, onCancelBrakeTest)
+    var tab by remember { mutableIntStateOf(initialTab) }
+    Box(Modifier.fillMaxSize()) {
+        Column(Modifier.fillMaxSize()) {
+            DeviceSummary(state, onShowDevices, onSubmitPassword, onRequestExit, onShowAppVersion, isPreview)
+            DashboardTabSelector(tab, listOf("概览", "保护参数", "续航测试", "刹车测试")) { tab = it }
+            when (tab) {
+                0 -> Overview(state, onRequestLocationPermission)
+                1 -> ProtectionParamsPage(state, onRefreshProtectionParams)
+                2 -> RangeTestPage(state, onRequestLocationPermission, onClearSpeedRangeStats)
+                else -> BrakeTestPage(state, onArmBrakeTest, onCancelBrakeTest)
+            }
+        }
+        FloatingActionButton(
+            onClick = onEnterPictureInPicture,
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .navigationBarsPadding()
+                .padding(end = 16.dp, bottom = 16.dp)
+                .zIndex(1f),
+            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f),
+            contentColor = MaterialTheme.colorScheme.primary,
+            elevation = FloatingActionButtonDefaults.elevation(
+                defaultElevation = 0.dp,
+                pressedElevation = 0.dp,
+                focusedElevation = 0.dp,
+                hoveredElevation = 0.dp
+            )
+        ) {
+            Icon(
+                painter = painterResource(R.drawable.ic_picture_in_picture),
+                contentDescription = "进入小窗",
+                modifier = Modifier.size(28.dp)
+            )
         }
     }
 }
@@ -51,7 +85,8 @@ private fun DeviceSummary(
     onShowDevices: () -> Unit,
     onSubmitPassword: (String) -> Boolean,
     onRequestExit: () -> Unit,
-    onShowAppVersion: () -> Unit
+    onShowAppVersion: () -> Unit,
+    isPreview: Boolean
 ) {
     var showSettings by remember { androidx.compose.runtime.mutableStateOf(false) }
     LaunchedEffect(state.authenticationRequired) {
@@ -83,7 +118,7 @@ private fun DeviceSummary(
             onClick = onShowDevices,
             modifier = Modifier.height(34.dp),
             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp)
-        ) { Text("设备", fontSize = 11.sp) }
+        ) { Text(if (isPreview) "退出演示" else "设备", fontSize = 11.sp) }
         Spacer(Modifier.width(6.dp))
         OutlinedButton(
             onClick = { showSettings = true },
@@ -187,19 +222,52 @@ private fun DialogInfoRow(label: String, value: String) {
 }
 
 @Composable
-private fun TabSelector(selected: Int, onSelect: (Int) -> Unit) {
-    val labels = listOf("概览", "续航测试", "刹车测试")
-    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+internal fun DashboardTabSelector(selected: Int, labels: List<String>, onSelect: (Int) -> Unit) {
+    Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 2.dp), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
         labels.forEachIndexed { index, label ->
             val active = index == selected
             Surface(
                 modifier = Modifier.weight(1f).clickable { onSelect(index) },
                 color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
                 contentColor = if (active) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
-                shape = RoundedCornerShape(10.dp)
+                shape = RoundedCornerShape(8.dp)
             ) {
-                Text(label, textAlign = androidx.compose.ui.text.style.TextAlign.Center, modifier = Modifier.padding(vertical = 7.dp), fontSize = 11.sp)
+                Text(label, textAlign = androidx.compose.ui.text.style.TextAlign.Center, modifier = Modifier.padding(vertical = 5.dp), fontSize = 11.sp)
             }
         }
     }
+}
+
+@Composable
+private fun PreviewDashboard(initialTab: Int) {
+    JbdBmsTheme {
+        Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+            Dashboard(
+                state = demoBmsState(),
+                onShowDevices = {},
+                onSubmitPassword = { false },
+                onRequestLocationPermission = {},
+                onRequestExit = {},
+                onArmBrakeTest = {},
+                onCancelBrakeTest = {},
+                onClearSpeedRangeStats = {},
+                onShowAppVersion = {},
+                onRefreshProtectionParams = {},
+                isPreview = true,
+                initialTab = initialTab
+            )
+        }
+    }
+}
+
+@Preview(name = "详情-概览", showBackground = true, widthDp = 392, heightDp = 850)
+@Composable
+private fun DashboardOverviewPreview() {
+    PreviewDashboard(initialTab = 0)
+}
+
+@Preview(name = "详情-保护参数", showBackground = true, widthDp = 392, heightDp = 850)
+@Composable
+private fun DashboardProtectionParamsPreview() {
+    PreviewDashboard(initialTab = 1)
 }

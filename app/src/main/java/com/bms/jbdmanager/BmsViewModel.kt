@@ -401,6 +401,11 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
         TripTracker.clearSpeedRangeStats()
     }
 
+    fun refreshProtectionParams() {
+        _uiState.update { it.copy(protectionParamsLoading = true, protectionParamsError = null) }
+        bleManager.readProtectionParameters()
+    }
+
     override fun onBluetoothState(supported: Boolean, enabled: Boolean) {
         _uiState.update { it.copy(bluetoothSupported = supported, bluetoothEnabled = enabled) }
         tryAutoConnect(supported, enabled)
@@ -457,6 +462,9 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
                 chipType = null,
                 basicInfo = null,
                 cells = null,
+                protectionParams = null,
+                protectionParamsLoading = false,
+                protectionParamsError = null,
                 reconnectInSeconds = null,
                 dataFreshness = DataFreshness.Waiting,
                 communicationReadyAtMillis = null,
@@ -483,7 +491,9 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
                 errorMessage = null,
                 communicationReadyAtMillis = System.currentTimeMillis(),
                 reconnectInSeconds = null,
-                gpsSpeed = GpsSpeedState()
+                gpsSpeed = GpsSpeedState(),
+                protectionParamsLoading = true,
+                protectionParamsError = null
             )
         }
     }
@@ -536,6 +546,14 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
                 if (state.lastValidDataAtMillis == null) state.copy(dataFreshness = DataFreshness.Waiting) else state
             }
         }
+        if (command == JbdProtocol.READ_PARAMETERS) {
+            _uiState.update {
+                it.copy(
+                    protectionParamsLoading = false,
+                    protectionParamsError = it.protectionParamsError ?: "读取保护参数超时"
+                )
+            }
+        }
     }
 
     override fun onAuthenticationRequired(message: String) {
@@ -566,8 +584,16 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
         classicProtocolSeen = true
         publishProtocolDiagnosis()
         bleManager.onProtocolResponse(frame.command, frame.status)
-        val message = JbdProtocol.parse(frame).getOrElse {
-            onError("数据字段解析失败：${it.message}")
+        val message = JbdProtocol.parse(frame).getOrElse { error ->
+            if (frame.command == JbdProtocol.READ_PARAMETERS) {
+                _uiState.update {
+                    it.copy(
+                        protectionParamsLoading = false,
+                        protectionParamsError = "保护参数解析失败：${error.message}"
+                    )
+                }
+            }
+            onError("数据字段解析失败：${error.message}")
             return
         }
 
@@ -607,7 +633,35 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
             is JbdMessage.ChipType -> {
                 _uiState.update { it.copy(chipType = message.value) }
             }
-            is JbdMessage.Unsupported, is JbdMessage.Unknown -> Unit
+            is JbdMessage.ProtectionParams -> {
+                _uiState.update {
+                    it.copy(
+                        protectionParams = message.value,
+                        protectionParamsLoading = false,
+                        protectionParamsError = null
+                    )
+                }
+            }
+            is JbdMessage.Unsupported -> {
+                if (frame.command == JbdProtocol.READ_PARAMETERS) {
+                    _uiState.update {
+                        it.copy(
+                            protectionParamsLoading = false,
+                            protectionParamsError = "此 BMS 未返回保护参数（状态 ${message.status}）"
+                        )
+                    }
+                }
+            }
+            is JbdMessage.Unknown -> {
+                if (frame.command == JbdProtocol.READ_PARAMETERS) {
+                    _uiState.update {
+                        it.copy(
+                            protectionParamsLoading = false,
+                            protectionParamsError = "保护参数格式无法识别"
+                        )
+                    }
+                }
+            }
         }
         if (frame.command == JbdProtocol.PASSWORD_PAIRING && frame.status == 0) {
             passwordAttempted = false

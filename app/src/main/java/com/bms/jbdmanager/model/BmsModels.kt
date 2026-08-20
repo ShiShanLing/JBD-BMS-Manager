@@ -2,6 +2,15 @@ package com.bms.jbdmanager.model
 
 import com.bms.jbdmanager.update.AppUpdateState
 
+/** 电动自行车动能回收会产生充电电流，只有静置且大于 7A 才视为插枪充电。 */
+const val SignificantChargeCurrentA = 7.0
+
+/** GPS 静置时可能有微小漂移，低于此视为车速为 0。 */
+const val StationarySpeedKmh = 1.0
+
+fun isStationaryCharging(currentA: Double, speedKmh: Double): Boolean =
+    currentA > SignificantChargeCurrentA && speedKmh < StationarySpeedKmh
+
 data class BmsBasicInfo(
     val totalVoltageV: Double,
     val currentA: Double,
@@ -23,6 +32,8 @@ data class BmsBasicInfo(
     val balancingCurrentMa: Int?,
     val updatedAtMillis: Long = System.currentTimeMillis()
 ) {
+    fun isCharging(speedKmh: Double): Boolean = isStationaryCharging(currentA, speedKmh)
+
     val estimatedSohPercent: Double?
         get() = fullChargeCapacityAh
             ?.takeIf { nominalCapacityAh > 0.0 }
@@ -37,6 +48,28 @@ data class CellSummary(
     val maximumMv: Int? get() = millivolts.maxOrNull()
     val deltaMv: Int? get() = minimumMv?.let { min -> maximumMv?.minus(min) }
 }
+
+data class JbdProtectionParams(
+    val fullChargeVoltageV: Double? = null,
+    val cellOvervoltageV: Double? = null,
+    val cellOvervoltageReleaseV: Double? = null,
+    val cellUndervoltageV: Double? = null,
+    val cellUndervoltageReleaseV: Double? = null,
+    val packOvervoltageV: Double? = null,
+    val packOvervoltageReleaseV: Double? = null,
+    val packUndervoltageV: Double? = null,
+    val packUndervoltageReleaseV: Double? = null,
+    val chargeOvercurrentA: Double? = null,
+    val dischargeOvercurrentA: Double? = null,
+    val chargeHighTempC: Double? = null,
+    val chargeHighTempReleaseC: Double? = null,
+    val chargeLowTempC: Double? = null,
+    val chargeLowTempReleaseC: Double? = null,
+    val dischargeHighTempC: Double? = null,
+    val dischargeHighTempReleaseC: Double? = null,
+    val dischargeLowTempC: Double? = null,
+    val dischargeLowTempReleaseC: Double? = null
+)
 
 data class ScanDevice(
     val address: String,
@@ -141,6 +174,14 @@ data class SpeedRangeStats(
     fun accepts(speedKmh: Double): Boolean = speedKmh >= minimumSpeedKmh && speedKmh < maximumSpeedKmh
 }
 
+data class HistoricalRangeEstimate(
+    val remainingKm: Double,
+    val sourceLabel: String,
+    val confidence: String,
+    val sampleDistanceKm: Double,
+    val ahPer100Km: Double?
+)
+
 fun defaultSpeedRangeStats(): List<SpeedRangeStats> =
     listOf(25, 30, 35, 40, 45, 50, 55, 60).map(::SpeedRangeStats)
 
@@ -220,6 +261,36 @@ data class TripState(
             distanceKm >= 15.0 && consumedAh >= 2.0 -> "较稳定"
             distanceKm >= 3.0 && consumedAh >= 0.5 -> "初步估算"
             else -> "采集中"
+        }
+
+    fun historicalRangeEstimate(remainingAh: Double? = currentRemainingAh): HistoricalRangeEstimate? {
+        val remaining = remainingAh ?: return null
+        val matching = speedRangeStats.firstOrNull { it.accepts(currentSpeedKmh) }
+        val matchingKm = matching?.estimatedRemainingKm(remaining)
+        if (matching != null && matchingKm != null) {
+            return HistoricalRangeEstimate(
+                remainingKm = matchingKm,
+                sourceLabel = "${matching.targetSpeedKmh}km/h 档",
+                confidence = matching.confidence,
+                sampleDistanceKm = matching.effectiveDistanceKm,
+                ahPer100Km = matching.ahPer100Km
+            )
+        }
+        val usable = speedRangeStats.filter { it.effectiveDistanceKm >= 3.0 && it.consumedAh >= 0.5 }
+        if (usable.isEmpty()) return null
+        val totalDistance = usable.sumOf { it.effectiveDistanceKm }
+        val totalConsumed = usable.sumOf { it.consumedAh }
+        if (totalDistance < 3.0 || totalConsumed < 0.5) return null
+        return HistoricalRangeEstimate(
+            remainingKm = (remaining / (totalConsumed / totalDistance)).coerceAtLeast(0.0),
+            sourceLabel = "综合历史",
+            confidence = when {
+                totalDistance >= 15.0 && totalConsumed >= 2.0 -> "较稳定"
+                else -> "初步估算"
+            },
+            sampleDistanceKm = totalDistance,
+            ahPer100Km = totalConsumed / totalDistance * 100.0
+        )
     }
 }
 
@@ -260,6 +331,12 @@ data class BmsUiState(
     val trip: TripState = TripState(),
     val gpsSpeed: GpsSpeedState = GpsSpeedState(),
     val lastSnapshot: LastBmsSnapshot? = null,
+    val protectionParams: JbdProtectionParams? = null,
+    val protectionParamsLoading: Boolean = false,
+    val protectionParamsError: String? = null,
     val errorMessage: String? = null,
     val appUpdate: AppUpdateState = AppUpdateState(currentVersionName = "", currentVersionCode = 0)
-)
+) {
+    val isCharging: Boolean
+        get() = basicInfo?.isCharging(trip.currentSpeedKmh) == true
+}

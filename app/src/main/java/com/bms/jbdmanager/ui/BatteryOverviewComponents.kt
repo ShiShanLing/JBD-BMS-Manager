@@ -74,10 +74,12 @@ private fun MetricCard(metric: Metric, modifier: Modifier = Modifier) {
 }
 
 @Composable
-internal fun SocHero(info: BmsBasicInfo) {
+internal fun SocHero(info: BmsBasicInfo, speedKmh: Double) {
+    val charging = info.isCharging(speedKmh)
     val batteryState = when {
-        info.currentA > 0.05 -> "正在充电"
+        charging -> "正在充电"
         info.currentA < -0.05 -> "正在放电"
+        info.currentA > 0.05 -> "动能回收"
         else -> "静置"
     }
     val currentText = if (kotlin.math.abs(info.currentA) <= 0.05) {
@@ -86,7 +88,7 @@ internal fun SocHero(info: BmsBasicInfo) {
         format(info.currentA, "A").replace(" ", "")
     }
     val batteryStateColor = when {
-        info.currentA > 0.05 -> MaterialTheme.colorScheme.primary
+        charging -> MaterialTheme.colorScheme.primary
         info.currentA < -0.05 -> MaterialTheme.colorScheme.secondary
         else -> MaterialTheme.colorScheme.onSurface
     }
@@ -287,8 +289,8 @@ private fun SmallSummary(label: String, value: String, modifier: Modifier, value
     }
 }
 
-private val AlertYellow = Color(0xFFFFC247)
-private val AlertOrange = Color(0xFFFF8A3D)
+internal val AlertYellow = Color(0xFFFFC247)
+internal val AlertOrange = Color(0xFFFF8A3D)
 
 @Composable
 internal fun deltaAlertColor(deltaMv: Int?, nearFull: Boolean): Color? {
@@ -312,6 +314,22 @@ internal fun deltaAlertColor(deltaMv: Int?, nearFull: Boolean): Color? {
 
 internal fun isNearFull(info: BmsBasicInfo, cells: CellSummary?): Boolean =
     info.stateOfChargePercent >= 95 || (cells?.maximumMv ?: 0) >= 3400
+
+@Composable
+internal fun temperatureAlertColor(
+    temperatureC: Double,
+    highLimitC: Double?,
+    protectionTriggered: Boolean = false
+): Color? {
+    if (protectionTriggered) return MaterialTheme.colorScheme.error
+    val limit = highLimitC ?: 50.0
+    return when {
+        temperatureC >= limit -> MaterialTheme.colorScheme.error
+        temperatureC >= limit - 5.0 -> AlertOrange
+        temperatureC >= limit - 10.0 -> AlertYellow
+        else -> null
+    }
+}
 
 @Composable
 internal fun healthAlertColor(sohPercent: Double?): Color? = when {

@@ -12,6 +12,32 @@ class JbdProtocolTest {
         assertEquals("DD A5 03 00 FF FD 77", JbdProtocol.readCommand(0x03).toHex())
         assertEquals("DD A5 04 00 FF FC 77", JbdProtocol.readCommand(0x04).toHex())
         assertEquals("DD A5 05 00 FF FB 77", JbdProtocol.readCommand(0x05).toHex())
+        assertEquals("DD A5 FA 03 00 01 02 FF 00 77", JbdProtocol.readParametersCommand(1, 2).toHex())
+    }
+
+    @Test
+    fun parsesOfficialReadParametersExample() {
+        val data = hex("00 01 02 0F A0 10 36")
+        val message = JbdProtocol.parse(
+            JbdProtocol.decode(response(0xFA, data)).getOrThrow()
+        ).getOrThrow() as JbdMessage.ProtectionParams
+        assertEquals(4.15, message.value.fullChargeVoltageV!!, 0.001)
+    }
+
+    @Test
+    fun parsesProtectionThresholdsFromParameterBlock() {
+        val data = hex(
+            "00 14 06 0E 42 0D DE 09 C4 0A F0 13 88 D1 20"
+        )
+        val message = JbdProtocol.parse(
+            JbdProtocol.decode(response(0xFA, data)).getOrThrow()
+        ).getOrThrow() as JbdMessage.ProtectionParams
+        assertEquals(3.65, message.value.cellOvervoltageV!!, 0.001)
+        assertEquals(3.55, message.value.cellOvervoltageReleaseV!!, 0.001)
+        assertEquals(2.50, message.value.cellUndervoltageV!!, 0.001)
+        assertEquals(2.80, message.value.cellUndervoltageReleaseV!!, 0.001)
+        assertEquals(50.0, message.value.chargeOvercurrentA!!, 0.001)
+        assertEquals(120.0, message.value.dischargeOvercurrentA!!, 0.001)
     }
 
     @Test

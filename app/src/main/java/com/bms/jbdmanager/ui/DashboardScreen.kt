@@ -1,5 +1,6 @@
 package com.bms.jbdmanager.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -44,6 +45,7 @@ internal fun Dashboard(
     initialTab: Int = 0
 ) {
     var tab by remember { mutableIntStateOf(initialTab) }
+    BackHandler(onBack = onShowDevices)
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize()) {
             DeviceSummary(state, onShowDevices, onSubmitPassword, onRequestExit, onShowAppVersion, isPreview)

@@ -138,8 +138,7 @@ internal fun ScanPanel(
     connect: (String) -> Unit,
     disconnect: () -> Unit,
     refreshNearby: () -> Unit,
-    showDashboard: () -> Unit,
-    showPreview: () -> Unit
+    showDashboard: () -> Unit
 ) {
     Column(Modifier.fillMaxSize()) {
         Column(Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) {
@@ -160,10 +159,6 @@ internal fun ScanPanel(
                 state.phase == ConnectionPhase.Disconnecting ->
                     InfoCard("正在断开设备…", MaterialTheme.colorScheme.onSurfaceVariant)
                 else -> Unit
-            }
-            Spacer(Modifier.height(10.dp))
-            OutlinedButton(onClick = showPreview, modifier = Modifier.fillMaxWidth()) {
-                Text("预览详情（测试数据）")
             }
         }
 

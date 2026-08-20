@@ -37,16 +37,14 @@ fun BmsApp(
     val snackbar = remember { SnackbarHostState() }
     var showDashboard by rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
     var showLastSnapshot by rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
-    var previewMode by rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
     var locationPermissionRequestedForConnection by rememberSaveable {
         androidx.compose.runtime.mutableStateOf(false)
     }
     var showExitConfirmation by remember { androidx.compose.runtime.mutableStateOf(false) }
     var showAppVersion by remember { androidx.compose.runtime.mutableStateOf(false) }
-    val displayedState = if (previewMode) demoBmsState(state.appUpdate) else state
 
     if (inPictureInPicture) {
-        PipScreen(displayedState)
+        PipScreen(state)
         return
     }
 
@@ -72,18 +70,16 @@ fun BmsApp(
     LaunchedEffect(state.phase) {
         when (state.phase) {
             ConnectionPhase.Ready -> {
-                previewMode = false
                 showLastSnapshot = false
                 showDashboard = true
             }
-            ConnectionPhase.Idle, ConnectionPhase.Error -> if (!previewMode) showDashboard = false
+            ConnectionPhase.Idle, ConnectionPhase.Error -> showDashboard = false
             else -> Unit
         }
     }
 
     LaunchedEffect(state.phase, state.basicInfo, state.locationPermissionGranted) {
         if (
-            !previewMode &&
             state.phase == ConnectionPhase.Ready && state.basicInfo != null &&
             !state.locationPermissionGranted && !locationPermissionRequestedForConnection
         ) {
@@ -104,23 +100,17 @@ fun BmsApp(
                 .statusBarsPadding()
         ) {
             val lastSnapshot = state.lastSnapshot
-            if (showLastSnapshot && lastSnapshot != null && !previewMode) {
+            if (showLastSnapshot && lastSnapshot != null) {
                 LastSnapshotScreen(
                     snapshot = lastSnapshot,
                     onBack = { showLastSnapshot = false }
                 )
-            } else if (previewMode || (showDashboard && state.phase == ConnectionPhase.Ready)) {
+            } else if (showDashboard && state.phase == ConnectionPhase.Ready) {
                 Dashboard(
-                    state = displayedState,
-                    isPreview = previewMode,
+                    state = state,
                     onShowDevices = {
-                        if (previewMode) {
-                            previewMode = false
-                            showDashboard = false
-                        } else {
-                            viewModel.saveLastSnapshot()
-                            showDashboard = false
-                        }
+                        viewModel.saveLastSnapshot()
+                        showDashboard = false
                     },
                     onSubmitPassword = viewModel::submitBluetoothPassword,
                     onRequestLocationPermission = requestLocationPermission,
@@ -156,11 +146,7 @@ fun BmsApp(
                     connect = viewModel::connect,
                     disconnect = viewModel::disconnect,
                     refreshNearby = refreshNearby,
-                    showDashboard = { showDashboard = true },
-                    showPreview = {
-                        previewMode = true
-                        showDashboard = true
-                    }
+                    showDashboard = { showDashboard = true }
                 )
             }
         }

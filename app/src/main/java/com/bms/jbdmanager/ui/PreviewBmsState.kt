@@ -14,8 +14,8 @@ import com.bms.jbdmanager.update.AppUpdateState
 
 internal fun demoBmsState(
     appUpdate: AppUpdateState = AppUpdateState(
-        currentVersionName = "0.5.0",
-        currentVersionCode = 30
+        currentVersionName = "0.5.1",
+        currentVersionCode = 31
     )
 ): BmsUiState {
     val now = System.currentTimeMillis()

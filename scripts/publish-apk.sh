@@ -26,7 +26,7 @@ fi
 TAG="v${VERSION_NAME}"
 ASSET_NAME="JBD-BMS-Manager-v${VERSION_NAME}.apk"
 APK_URL="https://github.com/${REPO}/releases/download/${TAG}/${ASSET_NAME}"
-TITLE="JBD BMS v${VERSION_NAME}"
+TITLE="电动BMS v${VERSION_NAME}"
 
 STAGING="$(mktemp -d)"
 trap 'rm -rf "$STAGING"' EXIT

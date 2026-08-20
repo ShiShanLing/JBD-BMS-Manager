@@ -1,3 +1,4 @@
 <resources>
-    <string name="app_name">JBD BMS 管理工具</string>
+    <string name="app_name">电动BMS</string>
+    <string name="app_title">电动 BMS</string>
 </resources>

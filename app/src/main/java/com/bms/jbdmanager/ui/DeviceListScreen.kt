@@ -24,6 +24,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -50,7 +51,7 @@ internal fun AppHeader(
     ) {
         Image(
             painter = painterResource(R.mipmap.ic_launcher_legacy),
-            contentDescription = "JBD BMS 应用图标",
+            contentDescription = stringResource(R.string.app_name),
             modifier = Modifier
                 .size(34.dp)
                 .clip(RoundedCornerShape(9.dp))
@@ -62,7 +63,7 @@ internal fun AppHeader(
                 .clickable(onClick = onShowAppVersion)
                 .padding(horizontal = 10.dp, vertical = 4.dp)
         ) {
-            Text("JBD BMS", fontWeight = FontWeight.Bold, fontSize = 17.sp)
+            Text(stringResource(R.string.app_title), fontWeight = FontWeight.Bold, fontSize = 17.sp)
             Text(
                 buildString {
                     append("v${state.appUpdate.currentVersionName} · ${state.appUpdate.currentVersionCode}")

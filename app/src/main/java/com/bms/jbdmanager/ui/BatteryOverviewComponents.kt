@@ -2,6 +2,7 @@ package com.bms.jbdmanager.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
@@ -74,7 +75,11 @@ private fun MetricCard(metric: Metric, modifier: Modifier = Modifier) {
 }
 
 @Composable
-internal fun SocHero(info: BmsBasicInfo, speedKmh: Double) {
+internal fun SocHero(
+    info: BmsBasicInfo,
+    speedKmh: Double,
+    onClick: (() -> Unit)? = null
+) {
     val charging = info.isCharging(speedKmh)
     val batteryState = when {
         charging -> "正在充电"
@@ -93,6 +98,7 @@ internal fun SocHero(info: BmsBasicInfo, speedKmh: Double) {
         else -> MaterialTheme.colorScheme.onSurface
     }
     Card(
+        modifier = if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.72f)),
         shape = RoundedCornerShape(16.dp)
     ) {
@@ -112,6 +118,14 @@ internal fun SocHero(info: BmsBasicInfo, speedKmh: Double) {
             Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f)) {
                 Text("电池状态", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
+                if (onClick != null) {
+                    Text(
+                        "点击切换演示场景",
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.85f),
+                        fontSize = 10.sp,
+                        lineHeight = 11.sp
+                    )
+                }
                 Column {
                     Text(
                         batteryState,

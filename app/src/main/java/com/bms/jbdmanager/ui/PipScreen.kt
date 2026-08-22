@@ -1,6 +1,12 @@
 package com.bms.jbdmanager.ui
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
@@ -15,6 +21,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -22,13 +29,16 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.bms.jbdmanager.model.BmsUiState
@@ -43,7 +53,7 @@ internal fun PipScreen(state: BmsUiState) {
         modifier = Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
-            .padding(horizontal = 10.dp, vertical = 8.dp)
+            .padding(horizontal = 8.dp, vertical = 6.dp)
     ) {
         AnimatedContent(
             targetState = charging,
@@ -59,38 +69,160 @@ internal fun PipScreen(state: BmsUiState) {
 private fun PipRidingLayout(state: BmsUiState) {
     val info = state.basicInfo
     val discharging = info != null && info.currentA < -0.05
+    val regen = info != null && info.currentA > 0.05 && !state.isCharging
     val accent = when {
         discharging -> MaterialTheme.colorScheme.primary
-        else -> MaterialTheme.colorScheme.onSurface
+        regen -> MaterialTheme.colorScheme.secondary
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
     }
     val status = when {
         info == null -> "等待数据"
         info.stateOfChargePercent >= 100 -> "已充满"
         discharging -> "放电中"
-        info.currentA > 0.05 -> "动能回收"
+        regen -> "动能回收"
+        state.trip.currentSpeedKmh >= 0.5 -> "骑行中"
         else -> "静置"
     }
-    val dischargeCurrent = if (discharging) abs(info.currentA) else 0.0
-    Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
-        PipSocBlock(soc = info?.stateOfChargePercent, accent = accent)
-        Spacer(Modifier.width(12.dp))
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                PipMetric("状态", status, Modifier.weight(1f), accent)
-                PipMetric("放电电流", "${compactNumber(dischargeCurrent, 2)} A", Modifier.weight(1f), accent)
+    val moving = state.trip.currentSpeedKmh >= 0.5
+    val speedText = "${compactNumber(state.trip.currentSpeedKmh, 1)}"
+    val rangeText = state.trip.estimatedRemainingKm?.let { "${compactNumber(it)} km" } ?: "采集中"
+    val dischargeCurrent = if (discharging) abs(info!!.currentA) else 0.0
+    val socProgress = (info?.stateOfChargePercent ?: 0) / 100f
+    val todayKm = state.mileageHistory.todayDistanceKm()
+
+    Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.SpaceBetween) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            PipSocBlock(soc = info?.stateOfChargePercent, accent = accent, compact = true)
+            Spacer(Modifier.width(8.dp))
+            Column(Modifier.weight(1f)) {
+                Text("当前车速", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 8.sp, maxLines = 1)
+                Row(verticalAlignment = Alignment.Bottom) {
+                    Text(
+                        speedText,
+                        color = accent,
+                        fontWeight = FontWeight.Black,
+                        fontSize = 22.sp,
+                        lineHeight = 24.sp,
+                        maxLines = 1
+                    )
+                    Text(
+                        " km/h",
+                        color = accent,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 10.sp,
+                        modifier = Modifier.padding(start = 1.dp, bottom = 3.dp)
+                    )
+                }
             }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                PipMetric(
-                    "当前车速",
-                    "${compactNumber(state.trip.currentSpeedKmh, 1)} km/h",
-                    Modifier.weight(1f)
-                )
-                PipMetric(
-                    "剩余续航",
-                    state.trip.estimatedRemainingKm?.let { "${compactNumber(it)} km" } ?: "采集中",
-                    Modifier.weight(1f)
-                )
-            }
+            PipStatusChip(status = status, accent = accent, compact = true)
+        }
+        PipRidingSocBar(
+            progress = socProgress,
+            moving = moving,
+            discharging = discharging,
+            accent = accent,
+            compact = true
+        )
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            PipMetric(
+                "今日总里程",
+                "${compactNumber(todayKm, 1)} km",
+                Modifier.weight(1f),
+                accent,
+                compact = true,
+                labelFontSize = 10.sp,
+                valueFontSize = 13.sp
+            )
+            PipMetric("剩余续航", rangeText, Modifier.weight(1f), accent, compact = true)
+            PipMetric(
+                "放电电流",
+                if (discharging) "${compactNumber(dischargeCurrent, 1)} A" else "--",
+                Modifier.weight(1f),
+                if (discharging) accent else null,
+                compact = true
+            )
+            PipMetric(
+                "本次",
+                if (state.trip.startedAtMillis != null) "${compactNumber(state.trip.distanceKm, 1)} km" else "--",
+                Modifier.weight(1f),
+                compact = true
+            )
+        }
+    }
+}
+
+@Composable
+private fun PipStatusChip(status: String, accent: Color, compact: Boolean = false) {
+    Surface(
+        color = accent.copy(alpha = 0.18f),
+        shape = RoundedCornerShape(999.dp)
+    ) {
+        Text(
+            status,
+            modifier = Modifier.padding(
+                horizontal = if (compact) 6.dp else 8.dp,
+                vertical = if (compact) 2.dp else 3.dp
+            ),
+            color = accent,
+            fontWeight = FontWeight.Bold,
+            fontSize = if (compact) 8.sp else 10.sp,
+            maxLines = 1
+        )
+    }
+}
+
+@Composable
+private fun PipRidingSocBar(
+    progress: Float,
+    moving: Boolean,
+    discharging: Boolean,
+    accent: Color,
+    compact: Boolean = false
+) {
+    val fill = progress.coerceIn(0f, 1f)
+    val animate = moving || discharging
+    val infinite = rememberInfiniteTransition(label = "ridingShimmer")
+    val shimmer by infinite.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1400, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "ridingShimmerValue"
+    )
+    BoxWithConstraints(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(if (compact) 6.dp else 8.dp)
+            .clip(RoundedCornerShape(if (compact) 6.dp else 8.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f))
+    ) {
+        Box(
+            Modifier
+                .fillMaxHeight()
+                .fillMaxWidth(fill)
+                .background(accent)
+        )
+        if (animate && fill > 0.04f) {
+            val barWidth = maxWidth * fill
+            val highlightWidth = barWidth * 0.28f
+            val travel = barWidth - highlightWidth
+            Box(
+                Modifier
+                    .offset(x = highlightWidth * -0.2f + travel * shimmer)
+                    .fillMaxHeight()
+                    .width(highlightWidth)
+                    .background(
+                        Brush.horizontalGradient(
+                            listOf(
+                                Color.Transparent,
+                                Color.White.copy(alpha = 0.35f),
+                                Color.Transparent
+                            )
+                        )
+                    )
+            )
         }
     }
 }
@@ -145,16 +277,20 @@ private fun PipChargingLayout(state: BmsUiState) {
 }
 
 @Composable
-private fun PipSocBlock(soc: Int?, accent: Color) {
+private fun PipSocBlock(soc: Int?, accent: Color, compact: Boolean = false) {
     Column(horizontalAlignment = Alignment.Start) {
         Text(
             soc?.let { "$it%" } ?: "--",
             fontWeight = FontWeight.Black,
-            fontSize = 28.sp,
-            lineHeight = 30.sp,
+            fontSize = if (compact) 22.sp else 28.sp,
+            lineHeight = if (compact) 24.sp else 30.sp,
             color = accent
         )
-        Text("SOC", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 10.sp)
+        Text(
+            "SOC",
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = if (compact) 8.sp else 10.sp
+        )
     }
 }
 
@@ -163,21 +299,32 @@ private fun PipMetric(
     label: String,
     value: String,
     modifier: Modifier = Modifier,
-    valueColor: Color? = null
+    valueColor: Color? = null,
+    compact: Boolean = false,
+    labelFontSize: TextUnit? = null,
+    valueFontSize: TextUnit? = null
 ) {
+    val resolvedLabelSize = labelFontSize ?: if (compact) 8.sp else 10.sp
+    val resolvedValueSize = valueFontSize ?: if (compact) 11.sp else 14.sp
+    val resolvedValueLineHeight = when {
+        valueFontSize != null -> 15.sp
+        compact -> 13.sp
+        else -> 16.sp
+    }
     Column(modifier) {
         Text(
             label,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            fontSize = 10.sp,
-            maxLines = 1
+            fontSize = resolvedLabelSize,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
         )
         Text(
             value,
             color = valueColor ?: MaterialTheme.colorScheme.onSurface,
             fontWeight = FontWeight.Bold,
-            fontSize = 14.sp,
-            lineHeight = 16.sp,
+            fontSize = resolvedValueSize,
+            lineHeight = resolvedValueLineHeight,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )
@@ -222,7 +369,7 @@ private fun PipRidingPreview() {
             PipScreen(
                 demo.copy(
                     basicInfo = demo.basicInfo?.copy(currentA = -18.4, stateOfChargePercent = 64),
-                    trip = demo.trip.copy(currentA = -18.4, currentSpeedKmh = 41.2, currentSocPercent = 64)
+                    trip = demo.trip.copy(currentA = -18.4, currentSpeedKmh = 41.2, currentSocPercent = 64, distanceMeters = 12_400.0)
                 )
             )
         }

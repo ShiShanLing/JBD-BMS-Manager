@@ -2,11 +2,10 @@ package com.bms.jbdmanager.trip
 
 import android.content.Context
 import com.bms.jbdmanager.model.BmsBasicInfo
-import com.bms.jbdmanager.model.BrakeTestPhase
-import com.bms.jbdmanager.model.BrakeTestState
 import com.bms.jbdmanager.model.RangeTestState
 import com.bms.jbdmanager.model.TripState
 import com.bms.jbdmanager.model.defaultSpeedRangeStats
+import com.bms.jbdmanager.storage.MileageHistoryStore
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -19,6 +18,7 @@ object TripTracker {
 
     private var initialized = false
     private lateinit var stateStore: TripStateStore
+    private lateinit var mileageHistoryStore: MileageHistoryStore
     private var lastBmsAtMillis: Long? = null
     private var lastCurrentA: Double? = null
     private var lastVoltageV: Double? = null
@@ -28,7 +28,9 @@ object TripTracker {
     @Synchronized
     fun initialize(context: Context) {
         if (initialized) return
-        stateStore = TripStateStore(context.applicationContext)
+        val appContext = context.applicationContext
+        stateStore = TripStateStore(appContext)
+        mileageHistoryStore = MileageHistoryStore(appContext)
         _state.value = stateStore.load()
         initialized = true
     }
@@ -130,12 +132,6 @@ object TripTracker {
         ensureInitialized()
         if (!_state.value.isTracking) return
         val speedKmh = (speedMetersPerSecond * 3.6).coerceAtLeast(0.0)
-        val brakeTest = updateBrakeTest(
-            state = _state.value.brakeTest,
-            speedKmh = speedKmh,
-            timestampMillis = timestampMillis,
-            speedAccuracyKmh = speedAccuracyMetersPerSecond?.times(3.6)
-        )
         val currentTest = _state.value.rangeTest
         val testAcceptsSample = currentTest.isActive &&
             speedKmh >= currentTest.minimumSpeedKmh && speedKmh <= currentTest.maximumSpeedKmh &&
@@ -166,36 +162,12 @@ object TripTracker {
             lastLocationAtMillis = timestampMillis,
             gpsMessage = "GPS 行程记录中",
             rangeTest = updatedTest,
-            speedRangeStats = speedRangeStats,
-            brakeTest = brakeTest
+            speedRangeStats = speedRangeStats
         )
         if (timestampMillis - lastLocationPersistAtMillis >= 1_000L) {
             lastLocationPersistAtMillis = timestampMillis
             persist()
         }
-    }
-
-    @Synchronized
-    fun armBrakeTest(targetSpeedKmh: Int) {
-        ensureInitialized()
-        if (!_state.value.isTracking) return
-        val target = targetSpeedKmh.coerceIn(10, 120)
-        _state.value = _state.value.copy(
-            brakeTest = BrakeTestState(
-                targetSpeedKmh = target,
-                phase = BrakeTestPhase.Armed,
-                message = "请安全加速到 $target km/h，达到后开始制动"
-            )
-        )
-    }
-
-    @Synchronized
-    fun cancelBrakeTest() {
-        ensureInitialized()
-        val target = _state.value.brakeTest.targetSpeedKmh
-        _state.value = _state.value.copy(
-            brakeTest = BrakeTestState(targetSpeedKmh = target, message = "测试已取消")
-        )
     }
 
     @Synchronized
@@ -205,18 +177,6 @@ object TripTracker {
         persist()
     }
 
-
-    internal fun updateBrakeTest(
-        state: BrakeTestState,
-        speedKmh: Double,
-        timestampMillis: Long,
-        speedAccuracyKmh: Double?
-    ): BrakeTestState = BrakeTestCalculator.update(
-        state = state,
-        speedKmh = speedKmh,
-        timestampMillis = timestampMillis,
-        speedAccuracyKmh = speedAccuracyKmh
-    )
 
     @Synchronized
     fun updateGpsStatus(message: String) {
@@ -262,6 +222,7 @@ object TripTracker {
     fun finish(message: String = "行程已结束") {
         ensureInitialized()
         if (!_state.value.isTracking) return
+        archiveCurrentTrip()
         _state.value = _state.value.copy(
             isTracking = false,
             currentSpeedKmh = 0.0,
@@ -295,6 +256,24 @@ object TripTracker {
     }
 
 
+
+    @Synchronized
+    fun loadMileageSessions(): List<com.bms.jbdmanager.model.TripSessionRecord> {
+        ensureInitialized()
+        return mileageHistoryStore.loadSessions()
+    }
+
+    private fun archiveCurrentTrip() {
+        val trip = _state.value
+        val startedAt = trip.startedAtMillis ?: return
+        mileageHistoryStore.archiveTrip(
+            startedAtMillis = startedAt,
+            finishedAtMillis = System.currentTimeMillis(),
+            distanceMeters = trip.distanceMeters,
+            consumedAh = trip.consumedAh,
+            consumedWh = trip.integratedConsumedWh
+        )
+    }
 
     private fun persist() = stateStore.save(_state.value)
 }

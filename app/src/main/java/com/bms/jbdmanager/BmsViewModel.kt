@@ -11,6 +11,7 @@ import com.bms.jbdmanager.model.BmsUiState
 import com.bms.jbdmanager.model.ConnectionPhase
 import com.bms.jbdmanager.model.DataFreshness
 import com.bms.jbdmanager.model.GpsSpeedState
+import com.bms.jbdmanager.model.MileageHistoryState
 import com.bms.jbdmanager.model.ScanDevice
 import com.bms.jbdmanager.protocol.JbdFrameAssembler
 import com.bms.jbdmanager.protocol.JbdMessage
@@ -76,6 +77,7 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
 
     init {
         TripTracker.initialize(application)
+        refreshMileageHistory()
         viewModelScope.launch {
             TripTracker.state.collect { trip ->
                 val gpsSpeed = if (_uiState.value.phase == ConnectionPhase.Ready) {
@@ -83,7 +85,13 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
                 } else {
                     GpsSpeedState()
                 }
-                _uiState.update { it.copy(trip = trip, gpsSpeed = gpsSpeed) }
+                _uiState.update {
+                    it.copy(
+                        trip = trip,
+                        gpsSpeed = gpsSpeed,
+                        mileageHistory = buildMileageHistory(trip)
+                    )
+                }
             }
         }
         viewModelScope.launch {
@@ -378,23 +386,6 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
     fun finishRangeTest() {
         if (!_uiState.value.trip.rangeTest.isActive) return
         TripTracker.finishRangeTest()
-    }
-
-    fun armBrakeTest(targetSpeedKmh: Int) {
-        val state = _uiState.value
-        when {
-            state.phase != ConnectionPhase.Ready -> onError("请先连接 BMS")
-            !state.locationPermissionGranted -> onError("请先允许精确位置权限")
-            !state.trip.isTracking -> onError("GPS 行程尚未开始")
-            targetSpeedKmh !in 10..120 -> onError("目标速度请输入 10–120 km/h")
-            else -> {
-                TripTracker.armBrakeTest(targetSpeedKmh)
-            }
-        }
-    }
-
-    fun cancelBrakeTest() {
-        TripTracker.cancelBrakeTest()
     }
 
     fun clearSpeedRangeStats() {
@@ -789,6 +780,21 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
         reconnectJob?.cancel()
         reconnectJob = null
         _uiState.update { it.copy(reconnectInSeconds = null) }
+    }
+
+    private fun refreshMileageHistory() {
+        _uiState.update { it.copy(mileageHistory = buildMileageHistory(it.trip)) }
+    }
+
+    private fun buildMileageHistory(trip: com.bms.jbdmanager.model.TripState): MileageHistoryState {
+        val sessions = TripTracker.loadMileageSessions()
+        val activeDistance = if (trip.isTracking) trip.distanceMeters else 0.0
+        val activeStartedAt = if (trip.isTracking) trip.startedAtMillis else null
+        return MileageHistoryState(
+            sessions = sessions,
+            activeTripDistanceMeters = activeDistance,
+            activeTripStartedAtMillis = activeStartedAt
+        )
     }
 
     override fun onCleared() {

@@ -185,37 +185,6 @@ data class HistoricalRangeEstimate(
 fun defaultSpeedRangeStats(): List<SpeedRangeStats> =
     listOf(25, 30, 35, 40, 45, 50, 55, 60).map(::SpeedRangeStats)
 
-enum class BrakeTestPhase { Idle, Armed, Ready, Braking, Complete, Failed }
-
-data class BrakeTestState(
-    val targetSpeedKmh: Int = 40,
-    val phase: BrakeTestPhase = BrakeTestPhase.Idle,
-    val currentSpeedKmh: Double = 0.0,
-    val startSpeedKmh: Double? = null,
-    val brakingDistanceMeters: Double = 0.0,
-    val brakingDurationSeconds: Double = 0.0,
-    val averageDecelerationMps2: Double? = null,
-    val sampleRateHz: Double = 0.0,
-    val speedAccuracyKmh: Double? = null,
-    val message: String = "选择目标速度后开始测试",
-    val startedAtMillis: Long? = null,
-    val completedAtMillis: Long? = null,
-    val previousSampleAtMillis: Long? = null,
-    val previousSpeedKmh: Double? = null,
-    val recentSampleTimesMillis: List<Long> = emptyList(),
-    val stoppedSampleCount: Int = 0
-) {
-    val isRunning: Boolean
-        get() = phase == BrakeTestPhase.Armed || phase == BrakeTestPhase.Ready || phase == BrakeTestPhase.Braking
-    val confidence: String
-        get() = when {
-            phase != BrakeTestPhase.Complete -> "等待完成"
-            sampleRateHz >= 5.0 && (speedAccuracyKmh ?: Double.MAX_VALUE) <= 2.0 -> "较高"
-            sampleRateHz >= 2.0 && (speedAccuracyKmh ?: Double.MAX_VALUE) <= 4.0 -> "中等"
-            else -> "仅供参考"
-        }
-}
-
 data class TripState(
     val isTracking: Boolean = false,
     val startedAtMillis: Long? = null,
@@ -233,8 +202,7 @@ data class TripState(
     val lastLocationAtMillis: Long? = null,
     val gpsMessage: String = "等待开始行程",
     val rangeTest: RangeTestState = RangeTestState(),
-    val speedRangeStats: List<SpeedRangeStats> = defaultSpeedRangeStats(),
-    val brakeTest: BrakeTestState = BrakeTestState()
+    val speedRangeStats: List<SpeedRangeStats> = defaultSpeedRangeStats()
 ) {
     val distanceKm: Double get() = distanceMeters / 1_000.0
     val socDropPercent: Int?
@@ -335,7 +303,8 @@ data class BmsUiState(
     val protectionParamsLoading: Boolean = false,
     val protectionParamsError: String? = null,
     val errorMessage: String? = null,
-    val appUpdate: AppUpdateState = AppUpdateState(currentVersionName = "", currentVersionCode = 0)
+    val appUpdate: AppUpdateState = AppUpdateState(currentVersionName = "", currentVersionCode = 0),
+    val mileageHistory: MileageHistoryState = MileageHistoryState()
 ) {
     val isCharging: Boolean
         get() = basicInfo?.isCharging(trip.currentSpeedKmh) == true

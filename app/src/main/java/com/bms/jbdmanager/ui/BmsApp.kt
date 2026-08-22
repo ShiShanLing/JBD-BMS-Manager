@@ -14,6 +14,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -42,9 +43,20 @@ fun BmsApp(
     }
     var showExitConfirmation by remember { androidx.compose.runtime.mutableStateOf(false) }
     var showAppVersion by remember { androidx.compose.runtime.mutableStateOf(false) }
+    var previewMode by rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
+    var previewScenarioOrdinal by rememberSaveable { mutableIntStateOf(0) }
+    val previewScenario = DemoPreviewScenario.entries[
+        previewScenarioOrdinal % DemoPreviewScenario.entries.size
+    ]
+
+    val dashboardState = if (previewMode) {
+        demoBmsState(appUpdate = state.appUpdate, scenario = previewScenario)
+    } else {
+        state
+    }
 
     if (inPictureInPicture) {
-        PipScreen(state)
+        PipScreen(if (previewMode) dashboardState else state)
         return
     }
 
@@ -68,6 +80,7 @@ fun BmsApp(
     }
 
     LaunchedEffect(state.phase) {
+        if (previewMode) return@LaunchedEffect
         when (state.phase) {
             ConnectionPhase.Ready -> {
                 showLastSnapshot = false
@@ -105,22 +118,28 @@ fun BmsApp(
                     snapshot = lastSnapshot,
                     onBack = { showLastSnapshot = false }
                 )
-            } else if (showDashboard && state.phase == ConnectionPhase.Ready) {
+            } else if ((showDashboard && state.phase == ConnectionPhase.Ready) || previewMode) {
                 Dashboard(
-                    state = state,
+                    state = dashboardState,
                     onShowDevices = {
-                        viewModel.saveLastSnapshot()
-                        showDashboard = false
+                        if (previewMode) {
+                            previewMode = false
+                        } else {
+                            viewModel.saveLastSnapshot()
+                            showDashboard = false
+                        }
                     },
                     onSubmitPassword = viewModel::submitBluetoothPassword,
                     onRequestLocationPermission = requestLocationPermission,
                     onRequestExit = { showExitConfirmation = true },
-                    onArmBrakeTest = viewModel::armBrakeTest,
-                    onCancelBrakeTest = viewModel::cancelBrakeTest,
                     onClearSpeedRangeStats = viewModel::clearSpeedRangeStats,
                     onShowAppVersion = { showAppVersion = true },
                     onRefreshProtectionParams = viewModel::refreshProtectionParams,
-                    onEnterPictureInPicture = enterPictureInPicture
+                    onEnterPictureInPicture = enterPictureInPicture,
+                    isPreview = previewMode,
+                    onCyclePreviewScenario = {
+                        previewScenarioOrdinal = (previewScenarioOrdinal + 1) % DemoPreviewScenario.entries.size
+                    }
                 )
             } else {
                 val refreshNearby: () -> Unit = {
@@ -139,7 +158,8 @@ fun BmsApp(
                         null
                     },
                     onRequestExit = { showExitConfirmation = true },
-                    onShowAppVersion = { showAppVersion = true }
+                    onShowAppVersion = { showAppVersion = true },
+                    isPreview = previewMode
                 )
                 ScanPanel(
                     state = state,

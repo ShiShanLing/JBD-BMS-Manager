@@ -19,6 +19,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -35,13 +36,12 @@ internal fun Dashboard(
     onSubmitPassword: (String) -> Boolean,
     onRequestLocationPermission: () -> Unit,
     onRequestExit: () -> Unit,
-    onArmBrakeTest: (Int) -> Unit,
-    onCancelBrakeTest: () -> Unit,
     onClearSpeedRangeStats: () -> Unit,
     onShowAppVersion: () -> Unit,
     onRefreshProtectionParams: () -> Unit,
     onEnterPictureInPicture: () -> Unit = {},
     isPreview: Boolean = false,
+    onCyclePreviewScenario: (() -> Unit)? = null,
     initialTab: Int = 0
 ) {
     var tab by remember { mutableIntStateOf(initialTab) }
@@ -49,12 +49,16 @@ internal fun Dashboard(
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize()) {
             DeviceSummary(state, onShowDevices, onSubmitPassword, onRequestExit, onShowAppVersion, isPreview)
-            DashboardTabSelector(tab, listOf("概览", "保护参数", "续航测试", "刹车测试")) { tab = it }
+            DashboardTabSelector(tab, listOf("概览", "保护参数", "续航测试", "里程")) { tab = it }
             when (tab) {
-                0 -> Overview(state, onRequestLocationPermission)
+                0 -> Overview(
+                    state,
+                    onRequestLocationPermission,
+                    onCyclePreviewScenario = if (isPreview) onCyclePreviewScenario else null
+                )
                 1 -> ProtectionParamsPage(state, onRefreshProtectionParams)
                 2 -> RangeTestPage(state, onRequestLocationPermission, onClearSpeedRangeStats)
-                else -> BrakeTestPage(state, onArmBrakeTest, onCancelBrakeTest)
+                else -> MileageHistoryPage(state.mileageHistory)
             }
         }
         FloatingActionButton(
@@ -234,7 +238,7 @@ internal fun DashboardTabSelector(selected: Int, labels: List<String>, onSelect:
                 contentColor = if (active) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
                 shape = RoundedCornerShape(8.dp)
             ) {
-                Text(label, textAlign = androidx.compose.ui.text.style.TextAlign.Center, modifier = Modifier.padding(vertical = 5.dp), fontSize = 11.sp)
+                Text(label, textAlign = androidx.compose.ui.text.style.TextAlign.Center, modifier = Modifier.padding(vertical = 5.dp, horizontal = 2.dp), fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
     }
@@ -250,8 +254,6 @@ private fun PreviewDashboard(initialTab: Int) {
                 onSubmitPassword = { false },
                 onRequestLocationPermission = {},
                 onRequestExit = {},
-                onArmBrakeTest = {},
-                onCancelBrakeTest = {},
                 onClearSpeedRangeStats = {},
                 onShowAppVersion = {},
                 onRefreshProtectionParams = {},

@@ -28,6 +28,7 @@ import com.bms.jbdmanager.model.BmsBasicInfo
 import com.bms.jbdmanager.model.BmsUiState
 import com.bms.jbdmanager.model.CellSummary
 import com.bms.jbdmanager.model.GpsSpeedState
+import com.bms.jbdmanager.model.MileageHistoryState
 import com.bms.jbdmanager.model.TripState
 import java.util.Locale
 
@@ -35,7 +36,8 @@ import java.util.Locale
 @Composable
 internal fun Overview(
     state: BmsUiState,
-    onRequestLocationPermission: () -> Unit
+    onRequestLocationPermission: () -> Unit,
+    onCyclePreviewScenario: (() -> Unit)? = null
 ) {
     val info = state.basicInfo
     if (info == null) {
@@ -46,7 +48,7 @@ internal fun Overview(
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        item { SocHero(info, state.trip.currentSpeedKmh) }
+        item { SocHero(info, state.trip.currentSpeedKmh, onClick = onCyclePreviewScenario) }
         item { GpsSpeedPanel(state.gpsSpeed) }
         item {
             val cells = state.cells
@@ -84,7 +86,7 @@ internal fun Overview(
                 )
             )
         }
-        item { TripCard(state.trip, info.remainingCapacityAh, state.locationPermissionGranted, onRequestLocationPermission) }
+        item { TripCard(state.trip, state.mileageHistory, info.remainingCapacityAh, state.locationPermissionGranted, onRequestLocationPermission) }
         item { TemperatureCard(info) }
         item {
             CellsOverviewSection(
@@ -101,10 +103,12 @@ internal fun Overview(
 @Composable
 private fun TripCard(
     trip: TripState,
+    mileageHistory: MileageHistoryState,
     remainingAhHint: Double?,
     locationPermissionGranted: Boolean,
     onRequestLocationPermission: () -> Unit
 ) {
+    val todayKm = mileageHistory.todayDistanceKm()
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.46f)),
         shape = RoundedCornerShape(14.dp)
@@ -117,6 +121,29 @@ private fun TripCard(
                     color = if (trip.isTracking) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 10.sp,
                     fontWeight = FontWeight.SemiBold
+                )
+            }
+            Spacer(Modifier.height(7.dp))
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f))
+                    .padding(horizontal = 10.dp, vertical = 7.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    "今日总里程",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 13.sp,
+                    modifier = Modifier.weight(1f)
+                )
+                Text(
+                    "${compactNumber(todayKm)} km",
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.Black,
+                    fontSize = 20.sp,
+                    lineHeight = 22.sp
                 )
             }
             Spacer(Modifier.height(7.dp))

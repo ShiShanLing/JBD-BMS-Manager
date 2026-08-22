@@ -38,7 +38,6 @@ class TripTrackingService : Service(), LocationListener {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var notificationJob: Job? = null
     private var locationUpdatesRequested = false
-    private var highFrequencyLocationRequested = false
     private var foregroundStarted = false
     private var lastNotificationUpdateAtMillis = 0L
     private val speedSamples = ArrayDeque<Pair<Long, Double>>()
@@ -63,12 +62,12 @@ class TripTrackingService : Service(), LocationListener {
         startForeground(NOTIFICATION_ID, buildNotification(TripTracker.state.value))
         foregroundStarted = true
         observeTripUpdates()
-        requestLocationUpdates(highFrequency = TripTracker.state.value.brakeTest.isRunning)
+        requestLocationUpdates()
         return START_STICKY
     }
 
-    private fun requestLocationUpdates(highFrequency: Boolean) {
-        if (locationUpdatesRequested && highFrequencyLocationRequested == highFrequency) return
+    private fun requestLocationUpdates() {
+        if (locationUpdatesRequested) return
         val hasFineLocation = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) ==
             PackageManager.PERMISSION_GRANTED
         if (!hasFineLocation) {
@@ -83,12 +82,11 @@ class TripTrackingService : Service(), LocationListener {
             if (locationUpdatesRequested) locationManager.removeUpdates(this)
             locationManager.requestLocationUpdates(
                 LocationManager.GPS_PROVIDER,
-                if (highFrequency) BRAKE_TEST_LOCATION_INTERVAL_MS else LOCATION_INTERVAL_MS,
+                LOCATION_INTERVAL_MS,
                 0f,
                 this
             )
             locationUpdatesRequested = true
-            highFrequencyLocationRequested = highFrequency
         }.onFailure {
             TripTracker.updateGpsStatus("GPS 启动失败：${it.message.orEmpty()}")
         }
@@ -175,7 +173,6 @@ class TripTrackingService : Service(), LocationListener {
         notificationJob = serviceScope.launch {
             TripTracker.state.collect { state ->
                 if (!foregroundStarted || !state.isTracking) return@collect
-                requestLocationUpdates(highFrequency = state.brakeTest.isRunning)
                 val now = SystemClock.elapsedRealtime()
                 if (
                     canPostNotifications() &&
@@ -288,7 +285,6 @@ class TripTrackingService : Service(), LocationListener {
         private const val NOTIFICATION_ID = 3202
         private const val NOTIFICATION_UPDATE_INTERVAL_MS = 5_000L
         private const val LOCATION_INTERVAL_MS = 1_000L
-        private const val BRAKE_TEST_LOCATION_INTERVAL_MS = 100L
         private const val MAX_ACCEPTED_ACCURACY_METERS = 25f
         private const val MAX_LOCATION_GAP_SECONDS = 30.0
         private const val MAX_PLAUSIBLE_SPEED_MPS = 35.0

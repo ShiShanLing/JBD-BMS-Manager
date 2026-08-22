@@ -10,14 +10,32 @@ import com.bms.jbdmanager.model.JbdProtectionParams
 import com.bms.jbdmanager.model.SpeedRangeStats
 import com.bms.jbdmanager.model.TripState
 import com.bms.jbdmanager.model.defaultSpeedRangeStats
+import com.bms.jbdmanager.model.MileageHistoryState
+import com.bms.jbdmanager.model.TripSessionRecord
 import com.bms.jbdmanager.update.AppUpdateState
+import java.time.DayOfWeek
+import java.time.LocalDate
+import java.time.ZoneId
+import java.time.temporal.TemporalAdjusters
+
+internal enum class DemoPreviewScenario {
+    Charging,
+    Riding,
+    Regen,
+    Idle;
+
+    fun next(): DemoPreviewScenario = entries[(ordinal + 1) % entries.size]
+}
 
 internal fun demoBmsState(
     appUpdate: AppUpdateState = AppUpdateState(
-        currentVersionName = "0.5.4",
-        currentVersionCode = 34
-    )
-): BmsUiState {
+        currentVersionName = "0.5.6",
+        currentVersionCode = 36
+    ),
+    scenario: DemoPreviewScenario = DemoPreviewScenario.Charging
+): BmsUiState = applyDemoScenario(baseDemoBmsState(appUpdate), scenario)
+
+private fun baseDemoBmsState(appUpdate: AppUpdateState): BmsUiState {
     val now = System.currentTimeMillis()
     return BmsUiState(
         permissionsGranted = true,
@@ -113,6 +131,113 @@ internal fun demoBmsState(
                 }
             }
         ),
+        mileageHistory = demoMileageHistory(),
         appUpdate = appUpdate
+    )
+}
+
+private fun applyDemoScenario(state: BmsUiState, scenario: DemoPreviewScenario): BmsUiState {
+    val info = state.basicInfo ?: return state
+    return when (scenario) {
+        DemoPreviewScenario.Charging -> state
+        DemoPreviewScenario.Riding -> {
+            val currentA = -18.4
+            val speedKmh = 41.2
+            state.copy(
+                basicInfo = info.copy(currentA = currentA, stateOfChargePercent = 64),
+                gpsSpeed = GpsSpeedState(
+                    currentKmh = speedKmh,
+                    average5SecondsKmh = 39.5,
+                    maximumKmh = 48.3
+                ),
+                trip = state.trip.copy(
+                    currentA = currentA,
+                    currentSpeedKmh = speedKmh,
+                    currentSocPercent = 64,
+                    currentRemainingAh = 64.0,
+                    gpsMessage = "GPS 行程记录中"
+                )
+            )
+        }
+        DemoPreviewScenario.Regen -> {
+            val currentA = 4.2
+            val speedKmh = 28.0
+            state.copy(
+                basicInfo = info.copy(currentA = currentA),
+                gpsSpeed = GpsSpeedState(
+                    currentKmh = speedKmh,
+                    average5SecondsKmh = 26.5,
+                    maximumKmh = 48.3
+                ),
+                trip = state.trip.copy(
+                    currentA = currentA,
+                    currentSpeedKmh = speedKmh,
+                    gpsMessage = "GPS 行程记录中"
+                )
+            )
+        }
+        DemoPreviewScenario.Idle -> {
+            val currentA = 0.02
+            state.copy(
+                basicInfo = info.copy(currentA = currentA),
+                gpsSpeed = GpsSpeedState(
+                    currentKmh = 0.0,
+                    average5SecondsKmh = 0.0,
+                    maximumKmh = 48.3
+                ),
+                trip = state.trip.copy(
+                    currentA = currentA,
+                    currentSpeedKmh = 0.0,
+                    gpsMessage = "GPS 已就绪"
+                )
+            )
+        }
+    }
+}
+
+private fun demoMileageHistory(): MileageHistoryState {
+    val zone = ZoneId.systemDefault()
+    val today = LocalDate.now()
+    val weekStart = today.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
+    val monthStart = today.withDayOfMonth(1)
+    val edgeTestDates = listOf(weekStart, monthStart, today).distinct()
+    val edgeSessions = edgeTestDates.map { date ->
+        val start = date.atTime(10, 0).atZone(zone).toInstant().toEpochMilli()
+        TripSessionRecord(
+            startedAtMillis = start,
+            finishedAtMillis = start + 3_600_000,
+            distanceMeters = 299_000.0,
+            consumedAh = 12.0,
+            consumedWh = 620.0
+        )
+    }
+    val yearlySessions = listOf(2024, 2025).map { year ->
+        val date = LocalDate.of(year, 6, 15)
+        val start = date.atTime(10, 0).atZone(zone).toInstant().toEpochMilli()
+        TripSessionRecord(
+            startedAtMillis = start,
+            finishedAtMillis = start + 3_600_000,
+            distanceMeters = (year - 2020) * 1_000.0,
+            consumedAh = 2.0,
+            consumedWh = 100.0
+        )
+    }
+    val sessions = (0 until 18).mapNotNull { offset ->
+        if (offset % 2 != 0) return@mapNotNull null
+        val date = today.minusDays(offset.toLong())
+        if (date in edgeTestDates) return@mapNotNull null
+        val start = date.atTime(10, 0).atZone(zone).toInstant().toEpochMilli()
+        TripSessionRecord(
+            startedAtMillis = start,
+            finishedAtMillis = start + 3_600_000,
+            distanceMeters = (4.0 + offset * 0.8) * 1_000.0,
+            consumedAh = 1.1 + offset * 0.08,
+            consumedWh = 55.0 + offset * 3.0
+        )
+    }
+    return MileageHistoryState(
+        sessions = edgeSessions + yearlySessions + sessions,
+        activeTripDistanceMeters = 2_800.0,
+        activeTripStartedAtMillis = today.atTime(9, 0).atZone(zone).toInstant().toEpochMilli()
     )
 }

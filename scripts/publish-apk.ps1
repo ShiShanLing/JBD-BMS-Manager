@@ -43,8 +43,7 @@ if ([string]::IsNullOrWhiteSpace($Notes)) { $Notes = $ChangelogNotes }
 $Tag = "v$VersionName"
 $AssetName = "JBD-BMS-Manager-v$VersionName.apk"
 $GitHubApkUrl = "https://github.com/$Repo/releases/download/$Tag/$AssetName"
-$ServerApkName = "latest.apk"
-$ApkUrl = if ($env:PUBLIC_APK_URL) { $env:PUBLIC_APK_URL } else { "http://106.13.175.227/jbd-bms/$ServerApkName" }
+$ApkUrl = if ($env:PUBLIC_APK_URL) { $env:PUBLIC_APK_URL } else { $GitHubApkUrl }
 $Title = "电动BMS v$VersionName"
 $Staging = Join-Path $env:TEMP ("jbd-apk-" + [guid]::NewGuid().ToString("n"))
 New-Item -ItemType Directory -Path $Staging | Out-Null
@@ -60,10 +59,6 @@ try {
         gh release create $Tag $StagedApk --repo $Repo --title $Title --notes $Notes
     }
     if ($LASTEXITCODE -ne 0) { throw "GitHub Release 上传失败，请先执行 gh auth login" }
-
-    scp -q $ApkPath "${HostAlias}:${RemoteDir}/$ServerApkName.uploading"
-    ssh $HostAlias "chmod 644 '$RemoteDir/$ServerApkName.uploading' && mv -f '$RemoteDir/$ServerApkName.uploading' '$RemoteDir/$ServerApkName'"
-    if ($LASTEXITCODE -ne 0) { throw "服务器 APK 上传失败" }
 
     $known = @{
         35 = @("0.5.5", "新增里程 Tab：日历与柱状图统计日/周/月/年骑行里程；概览与画中画显示今日总里程；优化骑行 PiP 布局。")
@@ -141,7 +136,7 @@ try {
 
     Write-Host "已发布 v$VersionName (versionCode $VersionCode)"
     Write-Host "  GitHub: $GitHubApkUrl"
-    Write-Host "  服务器: $ApkUrl"
+    Write-Host "  应用内下载: $ApkUrl"
     Write-Host "  检查更新: $VersionUrl"
 } finally {
     Remove-Item $Staging -Recurse -Force -ErrorAction SilentlyContinue

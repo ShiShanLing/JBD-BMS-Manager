@@ -29,6 +29,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.bms.jbdmanager.BuildConfig
 import com.bms.jbdmanager.R
 import com.bms.jbdmanager.model.BmsUiState
 import com.bms.jbdmanager.model.ConnectionPhase
@@ -41,6 +42,7 @@ internal fun AppHeader(
     onShowLastSnapshot: (() -> Unit)?,
     onRequestExit: () -> Unit,
     onShowAppVersion: () -> Unit,
+    onShowDataManagement: () -> Unit,
     isPreview: Boolean = false
 ) {
     Row(
@@ -103,6 +105,17 @@ internal fun AppHeader(
             }
             Spacer(Modifier.width(12.dp))
         }
+        IconButton(
+            onClick = onShowDataManagement,
+            modifier = Modifier.size(42.dp)
+        ) {
+            Icon(
+                painter = painterResource(R.drawable.ic_data_management),
+                contentDescription = "数据管理",
+                modifier = Modifier.size(25.dp)
+            )
+        }
+        Spacer(Modifier.width(4.dp))
         StatusBadge(state)
         Spacer(Modifier.width(4.dp))
         TextButton(onClick = onRequestExit, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)) {
@@ -138,7 +151,8 @@ internal fun ScanPanel(
     connect: (String) -> Unit,
     disconnect: () -> Unit,
     refreshNearby: () -> Unit,
-    showDashboard: () -> Unit
+    showDashboard: () -> Unit,
+    showPreview: () -> Unit
 ) {
     Column(Modifier.fillMaxSize()) {
         Column(Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) {
@@ -159,6 +173,12 @@ internal fun ScanPanel(
                 state.phase == ConnectionPhase.Disconnecting ->
                     InfoCard("正在断开设备…", MaterialTheme.colorScheme.onSurfaceVariant)
                 else -> Unit
+            }
+            if (BuildConfig.SHOW_DEBUG_TOOLS) {
+                Spacer(Modifier.height(10.dp))
+                OutlinedButton(onClick = showPreview, modifier = Modifier.fillMaxWidth()) {
+                    Text("预览详情（测试数据）")
+                }
             }
         }
 

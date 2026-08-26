@@ -22,6 +22,7 @@ import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.bms.jbdmanager.BmsViewModel
 import com.bms.jbdmanager.model.ConnectionPhase
+import com.bms.jbdmanager.model.TemperatureAlertLevel
 
 @Composable
 fun BmsApp(
@@ -30,6 +31,13 @@ fun BmsApp(
     requestPermissions: () -> Unit,
     requestEnableBluetooth: () -> Unit,
     requestLocationPermission: () -> Unit,
+    requestFullScreenTemperaturePermission: () -> Unit,
+    requestOverlayTemperaturePermission: () -> Unit,
+    requestCreateBackup: () -> Unit,
+    requestRestoreBackup: () -> Unit,
+    requestExportCsv: () -> Unit,
+    requestExportHealthPdf: () -> Unit,
+    shareHealthPdf: (String) -> Unit,
     installApk: (String) -> Unit,
     inPictureInPicture: Boolean = false,
     enterPictureInPicture: () -> Unit = {}
@@ -45,12 +53,16 @@ fun BmsApp(
     var showAppVersion by remember { androidx.compose.runtime.mutableStateOf(false) }
     var previewMode by rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
     var previewScenarioOrdinal by rememberSaveable { mutableIntStateOf(0) }
+    var showDataManagement by remember { androidx.compose.runtime.mutableStateOf(false) }
     val previewScenario = DemoPreviewScenario.entries[
         previewScenarioOrdinal % DemoPreviewScenario.entries.size
     ]
 
     val dashboardState = if (previewMode) {
-        demoBmsState(appUpdate = state.appUpdate, scenario = previewScenario)
+        demoBmsState(appUpdate = state.appUpdate, scenario = previewScenario).copy(
+            fullScreenTemperatureAlertGranted = state.fullScreenTemperatureAlertGranted,
+            overlayTemperatureAlertGranted = state.overlayTemperatureAlertGranted
+        )
     } else {
         state
     }
@@ -71,6 +83,13 @@ fun BmsApp(
         state.appUpdate.statusMessage?.let {
             snackbar.showSnackbar(it)
             viewModel.dismissAppUpdateStatus()
+        }
+    }
+
+    LaunchedEffect(state.dataManagement.statusMessage) {
+        state.dataManagement.statusMessage?.let {
+            snackbar.showSnackbar(it)
+            viewModel.dismissDataManagementStatus()
         }
     }
 
@@ -116,6 +135,17 @@ fun BmsApp(
             if (showLastSnapshot && lastSnapshot != null) {
                 LastSnapshotScreen(
                     snapshot = lastSnapshot,
+                    capacityHealthRecords = state.capacityHealthRecords,
+                    protectionEvents = state.protectionEvents,
+                    batteryTrend = state.batteryTrend,
+                    onLoadBatteryTrend = viewModel::loadBatteryTrend,
+                    onAddCapacityHealthRecord = viewModel::addCapacityHealthRecord,
+                    onDeleteCapacityHealthRecord = viewModel::deleteCapacityHealthRecord,
+                    onStartAutomaticCapacityTest = viewModel::startAutomaticCapacityTest,
+                    onFinishAutomaticCapacityTest = viewModel::finishAutomaticCapacityTest,
+                    onDiscardAutomaticCapacityTest = viewModel::discardAutomaticCapacityTest,
+                    onSaveAutomaticCapacityTestResult = viewModel::saveAutomaticCapacityTestResult,
+                    onShowDataManagement = { showDataManagement = true },
                     onBack = { showLastSnapshot = false }
                 )
             } else if ((showDashboard && state.phase == ConnectionPhase.Ready) || previewMode) {
@@ -133,7 +163,18 @@ fun BmsApp(
                     onRequestLocationPermission = requestLocationPermission,
                     onRequestExit = { showExitConfirmation = true },
                     onClearSpeedRangeStats = viewModel::clearSpeedRangeStats,
+                    onAddCapacityHealthRecord = viewModel::addCapacityHealthRecord,
+                    onDeleteCapacityHealthRecord = viewModel::deleteCapacityHealthRecord,
+                    onStartAutomaticCapacityTest = viewModel::startAutomaticCapacityTest,
+                    onFinishAutomaticCapacityTest = viewModel::finishAutomaticCapacityTest,
+                    onDiscardAutomaticCapacityTest = viewModel::discardAutomaticCapacityTest,
+                    onSaveAutomaticCapacityTestResult = viewModel::saveAutomaticCapacityTestResult,
+                    onLoadBatteryTrend = if (previewMode) ({}) else viewModel::loadBatteryTrend,
+                    onShowDataManagement = { showDataManagement = true },
                     onShowAppVersion = { showAppVersion = true },
+                    onRequestFullScreenTemperaturePermission = requestFullScreenTemperaturePermission,
+                    onRequestOverlayTemperaturePermission = requestOverlayTemperaturePermission,
+                    onTestCriticalTemperatureAlert = viewModel::testCriticalTemperatureAlert,
                     onRefreshProtectionParams = viewModel::refreshProtectionParams,
                     onEnterPictureInPicture = enterPictureInPicture,
                     isPreview = previewMode,
@@ -159,6 +200,7 @@ fun BmsApp(
                     },
                     onRequestExit = { showExitConfirmation = true },
                     onShowAppVersion = { showAppVersion = true },
+                    onShowDataManagement = { showDataManagement = true },
                     isPreview = previewMode
                 )
                 ScanPanel(
@@ -166,10 +208,23 @@ fun BmsApp(
                     connect = viewModel::connect,
                     disconnect = viewModel::disconnect,
                     refreshNearby = refreshNearby,
-                    showDashboard = { showDashboard = true }
+                    showDashboard = { showDashboard = true },
+                    showPreview = {
+                        previewScenarioOrdinal = 0
+                        previewMode = true
+                        showDashboard = true
+                    }
                 )
             }
         }
+    }
+    state.dataManagement.healthPdfPreviewPath?.let { path ->
+        BatteryHealthPdfPreviewScreen(
+            filePath = path,
+            onClose = viewModel::closeBatteryHealthPdfPreview,
+            onSave = requestExportHealthPdf,
+            onShare = shareHealthPdf
+        )
     }
     if (showAppVersion) {
         AppVersionDialog(
@@ -177,6 +232,55 @@ fun BmsApp(
             onDismiss = { if (!state.appUpdate.downloading) showAppVersion = false },
             onUpdate = viewModel::startAppUpdateDownload,
             onCheck = { viewModel.checkForAppUpdate(silent = false, allowPrompt = false) }
+        )
+    }
+    if (showDataManagement) {
+        DataManagementDialog(
+            state = state.dataManagement,
+            onDismiss = { if (!state.dataManagement.working) showDataManagement = false },
+            onCreateBackup = {
+                showDataManagement = false
+                requestCreateBackup()
+            },
+            onSelectRestore = {
+                showDataManagement = false
+                requestRestoreBackup()
+            },
+            onExportCsv = {
+                showDataManagement = false
+                requestExportCsv()
+            },
+            onPreviewHealthPdf = {
+                showDataManagement = false
+                viewModel.previewBatteryHealthPdf(if (previewMode) dashboardState else null)
+            },
+            onExportHealthPdf = {
+                showDataManagement = false
+                requestExportHealthPdf()
+            }
+        )
+    }
+    state.dataManagement.pendingRestore?.let { preview ->
+        AlertDialog(
+            onDismissRequest = viewModel::cancelDataRestore,
+            title = { Text("确认恢复备份？") },
+            text = {
+                Text(
+                    "备份版本：${preview.sourceVersionName}\n" +
+                        "趋势明细：${preview.trendSampleCount}条\n" +
+                        "每日摘要：${preview.dailySummaryCount}条\n" +
+                        "满充记录：${preview.fullChargeFingerprintCount}次\n\n" +
+                        "恢复会覆盖当前本地数据，且只能在蓝牙断开时执行。"
+                )
+            },
+            dismissButton = {
+                TextButton(onClick = viewModel::cancelDataRestore) { Text("取消") }
+            },
+            confirmButton = {
+                TextButton(onClick = viewModel::confirmDataRestore) {
+                    Text("确认恢复", color = MaterialTheme.colorScheme.error)
+                }
+            }
         )
     }
     if (state.appUpdate.showPrompt && state.appUpdate.available != null && !showAppVersion) {
@@ -202,6 +306,42 @@ fun BmsApp(
                         exitApp()
                     }
                 ) { Text("退出全部", color = MaterialTheme.colorScheme.error) }
+            }
+        )
+    }
+    state.temperatureSafetyAlert?.let { alert ->
+        AlertDialog(
+            onDismissRequest = {
+                if (alert.level == TemperatureAlertLevel.Warning) {
+                    viewModel.dismissTemperatureSafetyAlert()
+                }
+            },
+            title = {
+                Text(
+                    alert.title,
+                    color = if (alert.level == TemperatureAlertLevel.Critical) {
+                        MaterialTheme.colorScheme.error
+                    } else {
+                        MaterialTheme.colorScheme.secondary
+                    }
+                )
+            },
+            text = {
+                Text(
+                    buildString {
+                        append(alert.message)
+                        alert.riseRateCPerMinute?.takeIf { it > 0.0 }?.let {
+                            append("\n\n近一分钟升温速度约 ")
+                            append("%.1f".format(it))
+                            append("℃/分钟。")
+                        }
+                    }
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = viewModel::dismissTemperatureSafetyAlert) {
+                    Text("我已知晓")
+                }
             }
         )
     }

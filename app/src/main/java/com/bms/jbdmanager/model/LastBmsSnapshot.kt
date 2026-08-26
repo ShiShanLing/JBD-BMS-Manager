@@ -10,6 +10,7 @@ data class LastBmsSnapshot(
     val detectedProtocol: String?,
     val basicInfo: BmsBasicInfo,
     val cells: CellSummary?,
+    val protectionParams: JbdProtectionParams?,
     val gpsSpeed: GpsSpeedState,
     val trip: TripState,
     val mileageHistory: MileageHistoryState
@@ -24,6 +25,9 @@ data class LastBmsSnapshot(
         detectedProtocol = detectedProtocol,
         basicInfo = basicInfo,
         cells = cells,
+        protectionParams = protectionParams,
+        protectionParamsLoading = false,
+        protectionParamsError = if (protectionParams == null) "最后一次连接未读取到保护参数" else null,
         dataFreshness = DataFreshness.Fresh,
         lastValidDataAtMillis = basicInfo.updatedAtMillis,
         locationPermissionGranted = true,

@@ -6,6 +6,7 @@ import com.bms.jbdmanager.model.BmsBasicInfo
 import com.bms.jbdmanager.model.BmsUiState
 import com.bms.jbdmanager.model.CellSummary
 import com.bms.jbdmanager.model.MileageHistoryState
+import com.bms.jbdmanager.model.JbdProtectionParams
 import com.bms.jbdmanager.model.SpeedRangeStats
 import com.bms.jbdmanager.model.TripSessionRecord
 import com.bms.jbdmanager.model.TripState
@@ -74,6 +75,27 @@ class LastSnapshotStoreTest {
         assertEquals(10_000L, restored.trip.startedAtMillis)
         assertEquals(22_400.0, restored.trip.speedRangeStats.first { it.targetSpeedKmh == 40 }.effectiveDistanceMeters, 0.001)
         assertEquals(24.5, restored.trip.currentRemainingAh!!, 0.001)
+    }
+
+    @Test
+    fun protectionParamsAreAvailableFromOfflineSnapshot() {
+        val store = LastSnapshotStore(context)
+        val params = JbdProtectionParams(
+            fullChargeVoltageV = 3.65,
+            cellOvervoltageV = 3.75,
+            dischargeOvercurrentA = 120.0,
+            chargeHighTempC = 50.0,
+            dischargeLowTempC = -20.0
+        )
+        store.save(
+            sampleState(55.7, 52, listOf(3276, 3279)).copy(protectionParams = params),
+            nowMillis = 40_000L
+        )
+
+        val restored = store.load()!!
+
+        assertEquals(params, restored.protectionParams)
+        assertEquals(params, restored.asUiState().protectionParams)
     }
 
     private fun sampleState(voltage: Double, soc: Int, cells: List<Int>): BmsUiState = BmsUiState(

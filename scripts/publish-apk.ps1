@@ -5,7 +5,9 @@ param(
     [string]$HostAlias = $(if ($env:UPDATE_HOST) { $env:UPDATE_HOST } else { "baidu-bcc" }),
     [string]$RemoteDir = '/var/www/jbd-bms',
     [string]$Repo = $(if ($env:GITHUB_REPO) { $env:GITHUB_REPO } else { "ShiShanLing/JBD-BMS-Manager" }),
-    [string]$VersionUrl = $(if ($env:VERSION_URL) { $env:VERSION_URL } else { "http://106.13.175.227/jbd-bms/version.json" })
+    [string]$VersionUrl = $(if ($env:VERSION_URL) { $env:VERSION_URL } else { "http://106.13.175.227/jbd-bms/version.json" }),
+    [int]$MinimumUpdatableVersionCode = $(if ($env:MIN_UPDATABLE_VERSION_CODE) { [int]$env:MIN_UPDATABLE_VERSION_CODE } else { 30 }),
+    [string]$MinimumUpdatableVersionName = $(if ($env:MIN_UPDATABLE_VERSION_NAME) { $env:MIN_UPDATABLE_VERSION_NAME } else { "0.5.0" })
 )
 
 $ErrorActionPreference = "Stop"
@@ -125,6 +127,8 @@ try {
         versionName = $VersionName
         apkUrl = $ApkUrl
         forceUpdate = [bool]$Force
+        minimumUpdatableVersionCode = $MinimumUpdatableVersionCode
+        minimumUpdatableVersionName = $MinimumUpdatableVersionName
         releaseNotes = $Notes
         changelog = @($changelog | Sort-Object versionCode -Descending | Select-Object -First 20)
     }

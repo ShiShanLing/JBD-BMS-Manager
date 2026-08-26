@@ -25,8 +25,8 @@ android {
         applicationId = "com.bms.jbdmanager"
         minSdk = 31
         targetSdk = 36
-        versionCode = 37
-        versionName = "0.5.7"
+        versionCode = 38
+        versionName = "0.5.8"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
@@ -34,11 +34,17 @@ android {
 
     buildTypes {
         debug {
+            buildConfigField(
+                "boolean",
+                "SHOW_DEBUG_TOOLS",
+                providers.gradleProperty("showDebugTools").orElse("true").get()
+            )
             if (!ciDebugKeystorePath.isNullOrBlank()) {
                 signingConfig = signingConfigs.getByName("ciDebug")
             }
         }
         release {
+            buildConfigField("boolean", "SHOW_DEBUG_TOOLS", "false")
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),

@@ -304,7 +304,15 @@ data class BmsUiState(
     val protectionParamsError: String? = null,
     val errorMessage: String? = null,
     val appUpdate: AppUpdateState = AppUpdateState(currentVersionName = "", currentVersionCode = 0),
-    val mileageHistory: MileageHistoryState = MileageHistoryState()
+    val mileageHistory: MileageHistoryState = MileageHistoryState(),
+    val capacityHealthRecords: List<CapacityHealthRecord> = emptyList(),
+    val automaticCapacityTest: AutomaticCapacityTestState = AutomaticCapacityTestState(),
+    val protectionEvents: List<ProtectionEvent> = emptyList(),
+    val batteryTrend: BatteryTrendState = BatteryTrendState(),
+    val dataManagement: DataManagementState = DataManagementState(),
+    val temperatureSafetyAlert: TemperatureSafetyAlert? = null,
+    val fullScreenTemperatureAlertGranted: Boolean = false,
+    val overlayTemperatureAlertGranted: Boolean = false
 ) {
     val isCharging: Boolean
         get() = basicInfo?.isCharging(trip.currentSpeedKmh) == true

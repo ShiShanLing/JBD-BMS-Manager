@@ -263,6 +263,26 @@ object TripTracker {
         return mileageHistoryStore.loadSessions()
     }
 
+    @Synchronized
+    fun reloadAfterDataRestore() {
+        ensureInitialized()
+        val restored = stateStore.load()
+        _state.value = restored.copy(
+            isTracking = false,
+            currentSpeedKmh = 0.0,
+            gpsMessage = "备份恢复完成，连接BMS后开始新行程",
+            rangeTest = restored.rangeTest.let { test ->
+                if (test.isActive) test.copy(isActive = false, finishedAtMillis = System.currentTimeMillis()) else test
+            }
+        )
+        lastBmsAtMillis = null
+        lastCurrentA = null
+        lastVoltageV = null
+        lastLocationPersistAtMillis = 0L
+        autoStartSuppressed = false
+        persist()
+    }
+
     private fun archiveCurrentTrip() {
         val trip = _state.value
         val startedAt = trip.startedAtMillis ?: return

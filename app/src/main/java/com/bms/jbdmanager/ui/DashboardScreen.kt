@@ -2,6 +2,8 @@ package com.bms.jbdmanager.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -10,6 +12,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -23,9 +26,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.zIndex
+import com.bms.jbdmanager.BuildConfig
 import com.bms.jbdmanager.R
 import com.bms.jbdmanager.model.BmsUiState
+import com.bms.jbdmanager.model.BatteryTrendRange
 import com.bms.jbdmanager.model.DataFreshness
 import com.bms.jbdmanager.ui.theme.JbdBmsTheme
 
@@ -37,19 +41,44 @@ internal fun Dashboard(
     onRequestLocationPermission: () -> Unit,
     onRequestExit: () -> Unit,
     onClearSpeedRangeStats: () -> Unit,
+    onAddCapacityHealthRecord: (Double, Double?, String) -> Unit,
+    onDeleteCapacityHealthRecord: (Long) -> Unit,
+    onStartAutomaticCapacityTest: () -> Unit,
+    onFinishAutomaticCapacityTest: () -> Unit,
+    onDiscardAutomaticCapacityTest: () -> Unit,
+    onSaveAutomaticCapacityTestResult: () -> Unit,
+    onLoadBatteryTrend: (BatteryTrendRange) -> Unit,
+    onShowDataManagement: () -> Unit,
     onShowAppVersion: () -> Unit,
+    onRequestFullScreenTemperaturePermission: () -> Unit,
+    onRequestOverlayTemperaturePermission: () -> Unit,
+    onTestCriticalTemperatureAlert: () -> Unit,
     onRefreshProtectionParams: () -> Unit,
     onEnterPictureInPicture: () -> Unit = {},
     isPreview: Boolean = false,
     onCyclePreviewScenario: (() -> Unit)? = null,
     initialTab: Int = 0
 ) {
-    var tab by remember { mutableIntStateOf(initialTab) }
+    var tab by rememberSaveable { mutableIntStateOf(initialTab) }
+    var historySubpageOpen by rememberSaveable { mutableStateOf(false) }
     BackHandler(onBack = onShowDevices)
-    Box(Modifier.fillMaxSize()) {
-        Column(Modifier.fillMaxSize()) {
-            DeviceSummary(state, onShowDevices, onSubmitPassword, onRequestExit, onShowAppVersion, isPreview)
-            DashboardTabSelector(tab, listOf("概览", "保护参数", "续航测试", "里程")) { tab = it }
+    Column(Modifier.fillMaxSize()) {
+        if (!historySubpageOpen) {
+            DeviceSummary(
+                state = state,
+                onShowDevices = onShowDevices,
+                onSubmitPassword = onSubmitPassword,
+                onRequestExit = onRequestExit,
+                onShowAppVersion = onShowAppVersion,
+                onShowDataManagement = onShowDataManagement,
+                onRequestFullScreenTemperaturePermission = onRequestFullScreenTemperaturePermission,
+                onRequestOverlayTemperaturePermission = onRequestOverlayTemperaturePermission,
+                onTestCriticalTemperatureAlert = onTestCriticalTemperatureAlert,
+                onEnterPictureInPicture = onEnterPictureInPicture,
+                isPreview = isPreview
+            )
+        }
+        Box(Modifier.weight(1f).fillMaxWidth()) {
             when (tab) {
                 0 -> Overview(
                     state,
@@ -58,30 +87,25 @@ internal fun Dashboard(
                 )
                 1 -> ProtectionParamsPage(state, onRefreshProtectionParams)
                 2 -> RangeTestPage(state, onRequestLocationPermission, onClearSpeedRangeStats)
-                else -> MileageHistoryPage(state.mileageHistory)
+                else -> BatteryHistoryPage(
+                    state = state,
+                    onLoadBatteryTrend = onLoadBatteryTrend,
+                    onAddCapacityRecord = onAddCapacityHealthRecord,
+                    onDeleteCapacityRecord = onDeleteCapacityHealthRecord,
+                    onStartAutomaticCapacityTest = onStartAutomaticCapacityTest,
+                    onFinishAutomaticCapacityTest = onFinishAutomaticCapacityTest,
+                    onDiscardAutomaticCapacityTest = onDiscardAutomaticCapacityTest,
+                    onSaveAutomaticCapacityTestResult = onSaveAutomaticCapacityTestResult,
+                    onShowDataManagement = onShowDataManagement,
+                    onSubpageChanged = { historySubpageOpen = it }
+                )
             }
         }
-        FloatingActionButton(
-            onClick = onEnterPictureInPicture,
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .navigationBarsPadding()
-                .padding(end = 16.dp, bottom = 16.dp)
-                .zIndex(1f),
-            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f),
-            contentColor = MaterialTheme.colorScheme.primary,
-            elevation = FloatingActionButtonDefaults.elevation(
-                defaultElevation = 0.dp,
-                pressedElevation = 0.dp,
-                focusedElevation = 0.dp,
-                hoveredElevation = 0.dp
-            )
-        ) {
-            Icon(
-                painter = painterResource(R.drawable.ic_picture_in_picture),
-                contentDescription = "进入小窗",
-                modifier = Modifier.size(28.dp)
-            )
+        if (!historySubpageOpen) {
+            DashboardBottomNavigation(selected = tab, onSelect = {
+                tab = it
+                if (it != 3) historySubpageOpen = false
+            })
         }
     }
 }
@@ -92,6 +116,11 @@ private fun DeviceSummary(
     onSubmitPassword: (String) -> Boolean,
     onRequestExit: () -> Unit,
     onShowAppVersion: () -> Unit,
+    onShowDataManagement: () -> Unit,
+    onRequestFullScreenTemperaturePermission: () -> Unit,
+    onRequestOverlayTemperaturePermission: () -> Unit,
+    onTestCriticalTemperatureAlert: () -> Unit,
+    onEnterPictureInPicture: () -> Unit,
     isPreview: Boolean
 ) {
     var showSettings by remember { androidx.compose.runtime.mutableStateOf(false) }
@@ -120,6 +149,18 @@ private fun DeviceSummary(
                 maxLines = 1
             )
         }
+        IconButton(
+            onClick = onEnterPictureInPicture,
+            modifier = Modifier.size(34.dp)
+        ) {
+            Icon(
+                painter = painterResource(R.drawable.ic_picture_in_picture),
+                contentDescription = "进入小窗",
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(22.dp)
+            )
+        }
+        Spacer(Modifier.width(3.dp))
         OutlinedButton(
             onClick = onShowDevices,
             modifier = Modifier.height(34.dp),
@@ -143,8 +184,47 @@ private fun DeviceSummary(
             state = state,
             onDismiss = { showSettings = false },
             onSubmitPassword = onSubmitPassword,
-            onShowAppVersion = onShowAppVersion
+            onShowAppVersion = onShowAppVersion,
+            onShowDataManagement = onShowDataManagement,
+            onRequestFullScreenTemperaturePermission = onRequestFullScreenTemperaturePermission,
+            onRequestOverlayTemperaturePermission = onRequestOverlayTemperaturePermission,
+            onTestCriticalTemperatureAlert = onTestCriticalTemperatureAlert
         )
+    }
+}
+
+@Composable
+internal fun DashboardBottomNavigation(selected: Int, onSelect: (Int) -> Unit) {
+    val items = listOf(
+        Triple("概览", R.drawable.ic_nav_overview, "查看电池概览"),
+        Triple("保护", R.drawable.ic_nav_protection, "查看保护参数"),
+        Triple("续航", R.drawable.ic_nav_range, "查看续航测试"),
+        Triple("历史", R.drawable.ic_history, "查看历史记录")
+    )
+    NavigationBar(
+        modifier = Modifier.navigationBarsPadding().height(58.dp),
+        containerColor = MaterialTheme.colorScheme.surface,
+        tonalElevation = 0.dp,
+        windowInsets = WindowInsets(0, 0, 0, 0)
+    ) {
+        items.forEachIndexed { index, item ->
+            NavigationBarItem(
+                selected = selected == index,
+                onClick = { onSelect(index) },
+                icon = {
+                    Icon(
+                        painter = painterResource(item.second),
+                        contentDescription = item.third,
+                        modifier = Modifier.size(21.dp)
+                    )
+                },
+                label = { Text(item.first, fontSize = 10.sp) },
+                alwaysShowLabel = true,
+                colors = NavigationBarItemDefaults.colors(
+                    indicatorColor = MaterialTheme.colorScheme.primaryContainer
+                )
+            )
+        }
     }
 }
 
@@ -153,14 +233,21 @@ private fun DeviceSettingsDialog(
     state: BmsUiState,
     onDismiss: () -> Unit,
     onSubmitPassword: (String) -> Boolean,
-    onShowAppVersion: () -> Unit
+    onShowAppVersion: () -> Unit,
+    onShowDataManagement: () -> Unit,
+    onRequestFullScreenTemperaturePermission: () -> Unit,
+    onRequestOverlayTemperaturePermission: () -> Unit,
+    onTestCriticalTemperatureAlert: () -> Unit
 ) {
     var password by rememberSaveable { androidx.compose.runtime.mutableStateOf("") }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("设备信息") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
                 DialogInfoRow("BMS 型号", state.modelName ?: "未识别")
                 DialogInfoRow("芯片方案", state.chipType ?: "未识别")
                 DialogInfoRow("软件版本", state.basicInfo?.softwareVersion ?: "未读取")
@@ -188,6 +275,48 @@ private fun DeviceSettingsDialog(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text("查看 App 版本")
+                }
+                OutlinedButton(
+                    onClick = {
+                        onDismiss()
+                        onShowDataManagement()
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("数据备份、恢复与导出")
+                }
+                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f))
+                Text("高温紧急警报", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                DialogInfoRow(
+                    "锁屏全屏",
+                    if (state.fullScreenTemperatureAlertGranted) "已授权" else "未授权"
+                )
+                OutlinedButton(
+                    onClick = onRequestFullScreenTemperaturePermission,
+                    enabled = !state.fullScreenTemperatureAlertGranted,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(if (state.fullScreenTemperatureAlertGranted) "锁屏全屏警报已开启" else "授权锁屏全屏警报")
+                }
+                DialogInfoRow(
+                    "覆盖其他App",
+                    if (state.overlayTemperatureAlertGranted) "已授权" else "未授权"
+                )
+                OutlinedButton(
+                    onClick = onRequestOverlayTemperaturePermission,
+                    enabled = !state.overlayTemperatureAlertGranted,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(if (state.overlayTemperatureAlertGranted) "悬浮危险警报已开启" else "授权覆盖其他 App")
+                }
+                if (BuildConfig.SHOW_DEBUG_TOOLS) {
+                    Button(
+                        onClick = onTestCriticalTemperatureAlert,
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                    ) {
+                        Text("测试红色危险警报")
+                    }
                 }
                 if (state.authenticationRequired) {
                     HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f))
@@ -255,7 +384,18 @@ private fun PreviewDashboard(initialTab: Int) {
                 onRequestLocationPermission = {},
                 onRequestExit = {},
                 onClearSpeedRangeStats = {},
+                onAddCapacityHealthRecord = { _, _, _ -> },
+                onDeleteCapacityHealthRecord = {},
+                onStartAutomaticCapacityTest = {},
+                onFinishAutomaticCapacityTest = {},
+                onDiscardAutomaticCapacityTest = {},
+                onSaveAutomaticCapacityTestResult = {},
+                onLoadBatteryTrend = {},
+                onShowDataManagement = {},
                 onShowAppVersion = {},
+                onRequestFullScreenTemperaturePermission = {},
+                onRequestOverlayTemperaturePermission = {},
+                onTestCriticalTemperatureAlert = {},
                 onRefreshProtectionParams = {},
                 isPreview = true,
                 initialTab = initialTab

@@ -6,6 +6,7 @@ import com.bms.jbdmanager.model.BmsBasicInfo
 import com.bms.jbdmanager.model.BmsUiState
 import com.bms.jbdmanager.model.CellSummary
 import com.bms.jbdmanager.model.GpsSpeedState
+import com.bms.jbdmanager.model.JbdProtectionParams
 import com.bms.jbdmanager.model.LastBmsSnapshot
 import com.bms.jbdmanager.model.MileageHistoryState
 import com.bms.jbdmanager.model.SpeedRangeStats
@@ -34,6 +35,7 @@ internal class LastSnapshotStore(context: Context) {
             detectedProtocol = state.detectedProtocol,
             basicInfo = info,
             cells = state.cells,
+            protectionParams = state.protectionParams,
             gpsSpeed = state.gpsSpeed,
             trip = selectSnapshotTrip(state.trip, mileageHistory),
             mileageHistory = mileageHistory
@@ -107,6 +109,7 @@ internal class LastSnapshotStore(context: Context) {
             detectedProtocol = preferences.getString(KEY_DETECTED_PROTOCOL, null),
             basicInfo = basic,
             cells = cells,
+            protectionParams = preferences.getString(KEY_PROTECTION_PARAMS, null).toProtectionParams(),
             gpsSpeed = GpsSpeedState(
                 currentKmh = preferences.double(KEY_GPS_CURRENT) ?: 0.0,
                 average5SecondsKmh = preferences.double(KEY_GPS_AVERAGE) ?: 0.0,
@@ -177,6 +180,7 @@ internal class LastSnapshotStore(context: Context) {
             .putLong(KEY_DATA_UPDATED_AT, info.updatedAtMillis)
             .putString(KEY_CELLS, snapshot.cells?.millivolts?.joinToString(","))
             .putLong(KEY_CELLS_UPDATED_AT, snapshot.cells?.updatedAtMillis ?: -1L)
+            .putString(KEY_PROTECTION_PARAMS, snapshot.protectionParams?.toJson()?.toString())
             .putDouble(KEY_GPS_CURRENT, snapshot.gpsSpeed.currentKmh)
             .putDouble(KEY_GPS_AVERAGE, snapshot.gpsSpeed.average5SecondsKmh)
             .putDouble(KEY_GPS_MAXIMUM, snapshot.gpsSpeed.maximumKmh)
@@ -196,6 +200,63 @@ internal class LastSnapshotStore(context: Context) {
             .putString(KEY_MILEAGE_HISTORY, snapshot.mileageHistory.toJson())
             .commit()
     }
+
+    private fun JbdProtectionParams.toJson(): JSONObject = JSONObject().apply {
+        putOptionalDouble("fullChargeVoltageV", fullChargeVoltageV)
+        putOptionalDouble("cellOvervoltageV", cellOvervoltageV)
+        putOptionalDouble("cellOvervoltageReleaseV", cellOvervoltageReleaseV)
+        putOptionalDouble("cellUndervoltageV", cellUndervoltageV)
+        putOptionalDouble("cellUndervoltageReleaseV", cellUndervoltageReleaseV)
+        putOptionalDouble("packOvervoltageV", packOvervoltageV)
+        putOptionalDouble("packOvervoltageReleaseV", packOvervoltageReleaseV)
+        putOptionalDouble("packUndervoltageV", packUndervoltageV)
+        putOptionalDouble("packUndervoltageReleaseV", packUndervoltageReleaseV)
+        putOptionalDouble("chargeOvercurrentA", chargeOvercurrentA)
+        putOptionalDouble("dischargeOvercurrentA", dischargeOvercurrentA)
+        putOptionalDouble("chargeHighTempC", chargeHighTempC)
+        putOptionalDouble("chargeHighTempReleaseC", chargeHighTempReleaseC)
+        putOptionalDouble("chargeLowTempC", chargeLowTempC)
+        putOptionalDouble("chargeLowTempReleaseC", chargeLowTempReleaseC)
+        putOptionalDouble("dischargeHighTempC", dischargeHighTempC)
+        putOptionalDouble("dischargeHighTempReleaseC", dischargeHighTempReleaseC)
+        putOptionalDouble("dischargeLowTempC", dischargeLowTempC)
+        putOptionalDouble("dischargeLowTempReleaseC", dischargeLowTempReleaseC)
+    }
+
+    private fun String?.toProtectionParams(): JbdProtectionParams? {
+        if (this.isNullOrBlank()) return null
+        return runCatching {
+            val json = JSONObject(this)
+            JbdProtectionParams(
+                fullChargeVoltageV = json.optionalDouble("fullChargeVoltageV"),
+                cellOvervoltageV = json.optionalDouble("cellOvervoltageV"),
+                cellOvervoltageReleaseV = json.optionalDouble("cellOvervoltageReleaseV"),
+                cellUndervoltageV = json.optionalDouble("cellUndervoltageV"),
+                cellUndervoltageReleaseV = json.optionalDouble("cellUndervoltageReleaseV"),
+                packOvervoltageV = json.optionalDouble("packOvervoltageV"),
+                packOvervoltageReleaseV = json.optionalDouble("packOvervoltageReleaseV"),
+                packUndervoltageV = json.optionalDouble("packUndervoltageV"),
+                packUndervoltageReleaseV = json.optionalDouble("packUndervoltageReleaseV"),
+                chargeOvercurrentA = json.optionalDouble("chargeOvercurrentA"),
+                dischargeOvercurrentA = json.optionalDouble("dischargeOvercurrentA"),
+                chargeHighTempC = json.optionalDouble("chargeHighTempC"),
+                chargeHighTempReleaseC = json.optionalDouble("chargeHighTempReleaseC"),
+                chargeLowTempC = json.optionalDouble("chargeLowTempC"),
+                chargeLowTempReleaseC = json.optionalDouble("chargeLowTempReleaseC"),
+                dischargeHighTempC = json.optionalDouble("dischargeHighTempC"),
+                dischargeHighTempReleaseC = json.optionalDouble("dischargeHighTempReleaseC"),
+                dischargeLowTempC = json.optionalDouble("dischargeLowTempC"),
+                dischargeLowTempReleaseC = json.optionalDouble("dischargeLowTempReleaseC")
+            )
+        }.getOrNull()
+    }
+
+    private fun JSONObject.putOptionalDouble(key: String, value: Double?) {
+        if (value != null) put(key, value)
+    }
+
+    private fun JSONObject.optionalDouble(key: String): Double? =
+        if (has(key) && !isNull(key)) getDouble(key) else null
 
     private fun List<SpeedRangeStats>.toJson(): String = JSONArray().apply {
         forEach { stats ->
@@ -320,6 +381,7 @@ internal class LastSnapshotStore(context: Context) {
         const val KEY_DATA_UPDATED_AT = "data_updated_at"
         const val KEY_CELLS = "cells"
         const val KEY_CELLS_UPDATED_AT = "cells_updated_at"
+        const val KEY_PROTECTION_PARAMS = "protection_params"
         const val KEY_GPS_CURRENT = "gps_current"
         const val KEY_GPS_AVERAGE = "gps_average"
         const val KEY_GPS_MAXIMUM = "gps_maximum"

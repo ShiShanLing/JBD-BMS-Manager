@@ -9,6 +9,8 @@ REMOTE_DIR="/var/www/jbd-bms"
 REPO="${GITHUB_REPO:-ShiShanLing/JBD-BMS-Manager}"
 SERVER_APK_NAME="latest.apk"
 SERVER_APK_URL="${SERVER_APK_URL:-http://106.13.175.227/jbd-bms/$SERVER_APK_NAME}"
+MIN_UPDATABLE_VERSION_CODE="${MIN_UPDATABLE_VERSION_CODE:-30}"
+MIN_UPDATABLE_VERSION_NAME="${MIN_UPDATABLE_VERSION_NAME:-0.5.0}"
 
 if [[ ! -f "$APK" ]]; then
   echo "找不到安装包：$APK" >&2
@@ -61,18 +63,20 @@ ssh "$HOST" "chmod 644 '$REMOTE_DIR/$SERVER_APK_NAME.uploading' && mv -f '$REMOT
 
 TMP_JSON="$(mktemp)"
 VERSION_URL="${VERSION_URL:-http://106.13.175.227/jbd-bms/version.json}"
-python3 - "$TMP_JSON" "$VERSION_CODE" "$VERSION_NAME" "$NOTES" "$FORCE" "$APK_URL" "$VERSION_URL" <<'PY'
+python3 - "$TMP_JSON" "$VERSION_CODE" "$VERSION_NAME" "$NOTES" "$FORCE" "$APK_URL" "$VERSION_URL" "$MIN_UPDATABLE_VERSION_CODE" "$MIN_UPDATABLE_VERSION_NAME" <<'PY'
 import json
 import sys
 import urllib.request
 
-path, version_code, version_name, notes, force, apk_url, version_url = sys.argv[1:]
+path, version_code, version_name, notes, force, apk_url, version_url, minimum_code, minimum_name = sys.argv[1:]
 new_code = int(version_code)
 payload = {
     "versionCode": new_code,
     "versionName": version_name,
     "apkUrl": apk_url,
     "forceUpdate": force.lower() in {"1", "true", "yes", "force"},
+    "minimumUpdatableVersionCode": int(minimum_code),
+    "minimumUpdatableVersionName": minimum_name,
     "releaseNotes": notes,
 }
 

@@ -57,7 +57,8 @@ import kotlin.math.roundToInt
 @Composable
 internal fun ProtectionParamsPage(
     state: BmsUiState,
-    onRefresh: () -> Unit
+    onRefresh: () -> Unit,
+    readOnly: Boolean = false
 ) {
     val params = state.protectionParams
     LazyColumn(
@@ -68,7 +69,7 @@ internal fun ProtectionParamsPage(
         if (params != null) {
             item {
                 Text(
-                    "只读阈值，不会修改设置",
+                    if (readOnly) "最后一次保存的只读阈值" else "只读阈值，不会修改设置",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 10.sp,
                     lineHeight = 12.sp
@@ -119,8 +120,10 @@ internal fun ProtectionParamsPage(
                 Text(state.protectionParamsError, color = MaterialTheme.colorScheme.error, fontSize = 11.sp)
             }
         }
-        item {
-            CompactRefreshButton(state.protectionParamsLoading, onRefresh)
+        if (!readOnly) {
+            item {
+                CompactRefreshButton(state.protectionParamsLoading, onRefresh)
+            }
         }
     }
 }

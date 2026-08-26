@@ -1,6 +1,10 @@
 package com.bms.jbdmanager.ui
 
 import com.bms.jbdmanager.model.BmsBasicInfo
+import com.bms.jbdmanager.model.BatteryTrendPoint
+import com.bms.jbdmanager.model.BatteryTrendState
+import com.bms.jbdmanager.model.FullChargeFingerprint
+import com.bms.jbdmanager.model.CapacityHealthRecord
 import com.bms.jbdmanager.model.BmsUiState
 import com.bms.jbdmanager.model.CellSummary
 import com.bms.jbdmanager.model.ConnectionPhase
@@ -11,6 +15,8 @@ import com.bms.jbdmanager.model.SpeedRangeStats
 import com.bms.jbdmanager.model.TripState
 import com.bms.jbdmanager.model.defaultSpeedRangeStats
 import com.bms.jbdmanager.model.MileageHistoryState
+import com.bms.jbdmanager.model.ProtectionEvent
+import com.bms.jbdmanager.model.ProtectionEventSeverity
 import com.bms.jbdmanager.model.TripSessionRecord
 import com.bms.jbdmanager.update.AppUpdateState
 import java.time.DayOfWeek
@@ -132,6 +138,78 @@ private fun baseDemoBmsState(appUpdate: AppUpdateState): BmsUiState {
             }
         ),
         mileageHistory = demoMileageHistory(),
+        protectionEvents = listOf(
+            ProtectionEvent(
+                id = now - 86_400_000,
+                protectionBit = 3,
+                title = "总压过低",
+                startedAtMillis = now - 86_460_000,
+                resolvedAtMillis = now - 86_400_000,
+                severity = ProtectionEventSeverity.Expected,
+                summary = "电量接近耗尽时触发，按正常低电量截止记录",
+                stateOfChargePercent = 3,
+                totalVoltageV = 42.6,
+                currentA = -16.8,
+                minimumCellMv = 2490,
+                maximumCellMv = 2540,
+                cellDeltaMv = 50,
+                maximumTemperatureC = 38.2,
+                deviceAddress = "AA:BB:CC:12:34:56",
+                deviceName = "JBD-BMS（测试数据）"
+            )
+        ),
+        capacityHealthRecords = listOf(
+            CapacityHealthRecord(
+                id = now - 120L * 24 * 60 * 60 * 1_000,
+                recordedAtMillis = now - 120L * 24 * 60 * 60 * 1_000,
+                measuredDischargeAh = 96.4,
+                ratedCapacityAh = 100.0,
+                measuredDischargeWh = 5_040.0,
+                cycleCount = 42,
+                averageTemperatureC = 31.5,
+                note = "第一次完整容量测试"
+            ),
+            CapacityHealthRecord(
+                id = now - 10L * 24 * 60 * 60 * 1_000,
+                recordedAtMillis = now - 10L * 24 * 60 * 60 * 1_000,
+                measuredDischargeAh = 94.2,
+                ratedCapacityAh = 100.0,
+                measuredDischargeWh = 4_910.0,
+                cycleCount = 118,
+                averageTemperatureC = 33.0,
+                note = "近期复测"
+            )
+        ),
+        batteryTrend = BatteryTrendState(
+            points = (0 until 36).map { index ->
+                val progress = index / 35.0
+                BatteryTrendPoint(
+                    timestampMillis = now - (35 - index) * 10 * 60_000L,
+                    totalVoltageV = 54.2 - progress * 1.36 + kotlin.math.sin(index / 3.0) * 0.08,
+                    currentA = if (index % 6 < 4) -18.0 - index % 4 else 0.2,
+                    socPercent = 92.0 - progress * 14.0,
+                    maximumTemperatureC = 31.0 + kotlin.math.sin(index / 5.0) * 4.0,
+                    cellDeltaMv = 4.0 + index % 5,
+                    minimumCellMv = 3385.0 - progress * 84.0
+                )
+            },
+            fullChargeFingerprints = listOf(
+                FullChargeFingerprint(
+                    capturedAtMillis = now - 180L * 24 * 60 * 60 * 1_000,
+                    totalVoltageV = 55.92,
+                    socPercent = 100,
+                    maximumTemperatureC = 31.2,
+                    cellVoltagesMv = listOf(3494, 3497, 3492, 3495, 3496, 3493, 3498, 3494, 3495, 3497, 3492, 3495, 3496, 3494, 3497, 3495)
+                ),
+                FullChargeFingerprint(
+                    capturedAtMillis = now,
+                    totalVoltageV = 55.78,
+                    socPercent = 100,
+                    maximumTemperatureC = 32.4,
+                    cellVoltagesMv = listOf(3487, 3491, 3488, 3489, 3492, 3489, 3494, 3490, 3491, 3492, 3452, 3490, 3491, 3489, 3492, 3490)
+                )
+            )
+        ),
         appUpdate = appUpdate
     )
 }

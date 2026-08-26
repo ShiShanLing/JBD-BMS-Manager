@@ -2,6 +2,7 @@ package com.bms.jbdmanager
 
 import android.Manifest
 import android.app.PictureInPictureParams
+import android.app.NotificationManager
 import android.bluetooth.BluetoothAdapter
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -29,6 +30,8 @@ import com.bms.jbdmanager.model.ConnectionPhase
 import com.bms.jbdmanager.ui.BmsApp
 import com.bms.jbdmanager.ui.theme.JbdBmsTheme
 import java.io.File
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
@@ -53,6 +56,22 @@ class MainActivity : ComponentActivity() {
         ActivityResultContracts.RequestPermission()
     ) { }
 
+    private val createBackupLauncher = registerForActivityResult(
+        ActivityResultContracts.CreateDocument("application/zip")
+    ) { uri -> uri?.let(viewModel::exportFullBackup) }
+
+    private val restoreBackupLauncher = registerForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri -> uri?.let(viewModel::prepareDataRestore) }
+
+    private val exportCsvLauncher = registerForActivityResult(
+        ActivityResultContracts.CreateDocument("application/zip")
+    ) { uri -> uri?.let(viewModel::exportCsvPackage) }
+
+    private val exportHealthPdfLauncher = registerForActivityResult(
+        ActivityResultContracts.CreateDocument("application/pdf")
+    ) { uri -> uri?.let(viewModel::exportBatteryHealthPdf) }
+
     private var pendingInstallAfterPermission = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -68,6 +87,7 @@ class MainActivity : ComponentActivity() {
         inPictureInPicture = isInPictureInPictureMode
         viewModel.setPermissionsGranted(hasBluetoothPermissions())
         viewModel.setLocationPermissionGranted(hasPreciseLocationPermission())
+        refreshTemperatureEmergencyPermissions()
         observePictureInPictureEligibility()
         setContent {
             JbdBmsTheme {
@@ -102,6 +122,21 @@ class MainActivity : ComponentActivity() {
                             }.toTypedArray()
                         )
                     },
+                    requestFullScreenTemperaturePermission = ::requestFullScreenTemperaturePermission,
+                    requestOverlayTemperaturePermission = ::requestOverlayTemperaturePermission,
+                    requestCreateBackup = {
+                        createBackupLauncher.launch("电动BMS完整备份_${archiveTimestamp()}.zip")
+                    },
+                    requestRestoreBackup = {
+                        restoreBackupLauncher.launch(arrayOf("application/zip", "application/octet-stream"))
+                    },
+                    requestExportCsv = {
+                        exportCsvLauncher.launch("电动BMS数据_${archiveTimestamp()}.zip")
+                    },
+                    requestExportHealthPdf = {
+                        exportHealthPdfLauncher.launch("电池健康报告_${archiveTimestamp()}.pdf")
+                    },
+                    shareHealthPdf = ::shareHealthPdf,
                     installApk = ::installApk
                 )
             }
@@ -119,6 +154,7 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         viewModel.setPermissionsGranted(hasBluetoothPermissions())
         viewModel.setLocationPermissionGranted(hasPreciseLocationPermission())
+        refreshTemperatureEmergencyPermissions()
         if (pendingInstallAfterPermission && packageManager.canRequestPackageInstalls()) {
             pendingInstallAfterPermission = false
             viewModel.retryAppUpdateInstall()
@@ -208,6 +244,44 @@ class MainActivity : ComponentActivity() {
     private fun hasPreciseLocationPermission(): Boolean =
         ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
 
+    private fun refreshTemperatureEmergencyPermissions() {
+        val fullScreenGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            getSystemService(NotificationManager::class.java).canUseFullScreenIntent()
+        } else {
+            true
+        }
+        viewModel.setTemperatureEmergencyPermissions(
+            fullScreenGranted = fullScreenGranted,
+            overlayGranted = Settings.canDrawOverlays(this)
+        )
+    }
+
+    private fun requestFullScreenTemperaturePermission() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            refreshTemperatureEmergencyPermissions()
+            return
+        }
+        runCatching {
+            startActivity(
+                Intent(
+                    Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT,
+                    Uri.parse("package:$packageName")
+                )
+            )
+        }
+    }
+
+    private fun requestOverlayTemperaturePermission() {
+        runCatching {
+            startActivity(
+                Intent(
+                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    Uri.parse("package:$packageName")
+                )
+            )
+        }
+    }
+
     private fun installApk(path: String) {
         val apk = File(path).takeIf { it.isFile } ?: return
         val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", apk)
@@ -229,7 +303,23 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun shareHealthPdf(path: String) {
+        val report = File(path).takeIf { it.isFile } ?: return
+        val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", report)
+        startActivity(
+            Intent.createChooser(
+                Intent(Intent.ACTION_SEND)
+                    .setType("application/pdf")
+                    .putExtra(Intent.EXTRA_STREAM, uri)
+                    .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION),
+                "分享电池健康报告"
+            )
+        )
+    }
+
     companion object {
         const val EXTRA_EXIT_ALL = "com.bms.jbdmanager.EXIT_ALL"
+        private val archiveTimeFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyyMMdd_HHmm")
+        private fun archiveTimestamp(): String = LocalDateTime.now().format(archiveTimeFormatter)
     }
 }

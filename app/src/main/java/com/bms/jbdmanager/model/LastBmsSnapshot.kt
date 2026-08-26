@@ -11,7 +11,8 @@ data class LastBmsSnapshot(
     val basicInfo: BmsBasicInfo,
     val cells: CellSummary?,
     val gpsSpeed: GpsSpeedState,
-    val trip: TripState
+    val trip: TripState,
+    val mileageHistory: MileageHistoryState
 ) {
     fun asUiState(): BmsUiState = BmsUiState(
         phase = ConnectionPhase.Idle,
@@ -27,6 +28,7 @@ data class LastBmsSnapshot(
         lastValidDataAtMillis = basicInfo.updatedAtMillis,
         locationPermissionGranted = true,
         gpsSpeed = gpsSpeed,
-        trip = trip
+        trip = trip,
+        mileageHistory = mileageHistory
     )
 }

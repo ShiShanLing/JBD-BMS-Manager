@@ -101,14 +101,12 @@ internal fun AppVersionDialog(
     val latest = state.latest
     val hasNewer = state.hasNewerVersion
     val checkError = state.checkError
-    val alreadyLatest = latest != null && !hasNewer && checkError == null
-    val needCheck = !state.checking && !hasNewer && !alreadyLatest
     val status = when {
         state.checking -> "正在获取服务器版本…"
         checkError != null -> "获取失败：$checkError"
         latest == null -> "尚未获取服务器版本"
         hasNewer -> "发现新版本 ${latest.versionName}"
-        else -> "当前已是最新版本"
+        else -> "已经是最新版本"
     }
     val statusColor = when {
         state.checking -> MaterialTheme.colorScheme.onSurfaceVariant
@@ -127,21 +125,29 @@ internal fun AppVersionDialog(
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                VersionInfoRow("当前版本", "v${state.currentVersionName}")
+                VersionInfoRow(
+                    label = "当前版本",
+                    value = "v${state.currentVersionName}",
+                    trailing = {
+                        TextButton(
+                            onClick = onCheck,
+                            enabled = !state.checking && !state.downloading,
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+                        ) {
+                            Text(
+                                if (state.checking) "检查中" else "更新App",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
+                )
                 VersionInfoRow("内部版本号", state.currentVersionCode.toString())
                 VersionInfoRow(
                     "服务器版本",
                     latest?.let { "v${it.versionName}（${it.versionCode}）" } ?: "未获取"
                 )
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(status, color = statusColor, fontSize = 12.sp, modifier = Modifier.weight(1f))
-                    if (needCheck) {
-                        TextButton(
-                            onClick = onCheck,
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
-                        ) { Text("检查更新", fontSize = 12.sp) }
-                    }
-                }
+                Text(status, color = statusColor, fontSize = 12.sp)
                 val notes = latest?.let { info ->
                     if (hasNewer) {
                         info.notesSince(state.currentVersionCode)
@@ -212,8 +218,12 @@ private fun ChangelogSection(entries: List<AppUpdateEntry>) {
 }
 
 @Composable
-private fun VersionInfoRow(label: String, value: String) {
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
+private fun VersionInfoRow(
+    label: String,
+    value: String,
+    trailing: (@Composable () -> Unit)? = null
+) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Text(
             label,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -221,5 +231,6 @@ private fun VersionInfoRow(label: String, value: String) {
             modifier = Modifier.width(88.dp)
         )
         Text(value, fontSize = 13.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
+        if (trailing != null) trailing()
     }
 }

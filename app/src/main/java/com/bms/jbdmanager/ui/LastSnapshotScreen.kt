@@ -14,6 +14,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -26,6 +30,7 @@ import java.time.format.DateTimeFormatter
 
 @Composable
 internal fun LastSnapshotScreen(snapshot: LastBmsSnapshot, onBack: () -> Unit) {
+    var tab by remember { mutableIntStateOf(0) }
     BackHandler(onBack = onBack)
     Column(Modifier.fillMaxSize()) {
         Row(
@@ -56,10 +61,20 @@ internal fun LastSnapshotScreen(snapshot: LastBmsSnapshot, onBack: () -> Unit) {
             fontSize = 10.sp,
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp)
         )
-        Overview(
-            state = snapshot.asUiState(),
-            onRequestLocationPermission = {}
-        )
+        DashboardTabSelector(tab, listOf("概览", "续航测试", "行程")) { tab = it }
+        when (tab) {
+            0 -> Overview(
+                state = snapshot.asUiState(),
+                onRequestLocationPermission = {}
+            )
+            1 -> RangeTestPage(
+                state = snapshot.asUiState(),
+                onRequestLocationPermission = {},
+                onClearSpeedRangeStats = {},
+                readOnly = true
+            )
+            else -> MileageHistoryPage(snapshot.mileageHistory)
+        }
     }
 }
 

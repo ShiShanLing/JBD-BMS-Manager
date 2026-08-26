@@ -176,7 +176,7 @@ fun BmsApp(
             state = state.appUpdate,
             onDismiss = { if (!state.appUpdate.downloading) showAppVersion = false },
             onUpdate = viewModel::startAppUpdateDownload,
-            onCheck = { viewModel.checkForAppUpdate(silent = true, allowPrompt = false) }
+            onCheck = { viewModel.checkForAppUpdate(silent = false, allowPrompt = false) }
         )
     }
     if (state.appUpdate.showPrompt && state.appUpdate.available != null && !showAppVersion) {

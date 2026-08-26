@@ -7,13 +7,23 @@ import com.bms.jbdmanager.model.BmsUiState
 import com.bms.jbdmanager.model.CellSummary
 import com.bms.jbdmanager.model.GpsSpeedState
 import com.bms.jbdmanager.model.LastBmsSnapshot
+import com.bms.jbdmanager.model.MileageHistoryState
+import com.bms.jbdmanager.model.SpeedRangeStats
+import com.bms.jbdmanager.model.TripSessionRecord
 import com.bms.jbdmanager.model.TripState
+import com.bms.jbdmanager.model.defaultSpeedRangeStats
+import com.bms.jbdmanager.trip.TripStateStore
+import org.json.JSONArray
+import org.json.JSONObject
 
 internal class LastSnapshotStore(context: Context) {
     private val preferences = context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
+    private val mileageHistoryStore = MileageHistoryStore(context)
+    private val tripStateStore = TripStateStore(context)
 
     fun save(state: BmsUiState, nowMillis: Long = System.currentTimeMillis()): LastBmsSnapshot? {
         val info = state.basicInfo ?: return null
+        val mileageHistory = mergeMileageHistory(state.mileageHistory)
         val snapshot = LastBmsSnapshot(
             savedAtMillis = nowMillis,
             deviceAddress = state.connectedAddress,
@@ -25,7 +35,8 @@ internal class LastSnapshotStore(context: Context) {
             basicInfo = info,
             cells = state.cells,
             gpsSpeed = state.gpsSpeed,
-            trip = state.trip.copy(isTracking = false, currentSpeedKmh = 0.0)
+            trip = selectSnapshotTrip(state.trip, mileageHistory),
+            mileageHistory = mileageHistory
         )
         write(snapshot)
         return snapshot
@@ -61,7 +72,10 @@ internal class LastSnapshotStore(context: Context) {
             ?.mapNotNull(String::toIntOrNull)
             ?.takeIf(List<Int>::isNotEmpty)
             ?.let { CellSummary(it, preferences.getLong(KEY_CELLS_UPDATED_AT, savedAt)) }
-        val trip = TripState(
+        val savedSpeedRangeStats = preferences.getString(KEY_SPEED_RANGE_STATS, null)
+            .toSpeedRangeStats()
+            ?: tripStateStore.load().speedRangeStats
+        val savedTrip = TripState(
             isTracking = false,
             startedAtMillis = preferences.optionalLong(KEY_TRIP_STARTED_AT),
             distanceMeters = preferences.double(KEY_TRIP_DISTANCE) ?: 0.0,
@@ -76,8 +90,13 @@ internal class LastSnapshotStore(context: Context) {
             locationAccuracyMeters = preferences.optionalFloat(KEY_TRIP_ACCURACY),
             validLocationPoints = preferences.getInt(KEY_TRIP_POINTS, 0),
             lastLocationAtMillis = preferences.optionalLong(KEY_TRIP_LAST_LOCATION),
-            gpsMessage = "最后状态保存时的行程"
+            gpsMessage = "最后状态保存时的行程",
+            speedRangeStats = savedSpeedRangeStats
         )
+        val mileageHistory = mergeMileageHistory(
+            preferences.getString(KEY_MILEAGE_HISTORY, null).toMileageHistory()
+        )
+        val trip = selectSnapshotTrip(savedTrip, mileageHistory)
         return LastBmsSnapshot(
             savedAtMillis = savedAt,
             deviceAddress = preferences.getString(KEY_DEVICE_ADDRESS, null),
@@ -93,8 +112,36 @@ internal class LastSnapshotStore(context: Context) {
                 average5SecondsKmh = preferences.double(KEY_GPS_AVERAGE) ?: 0.0,
                 maximumKmh = preferences.double(KEY_GPS_MAXIMUM) ?: 0.0
             ),
-            trip = trip
+            trip = trip,
+            mileageHistory = mileageHistory
         )
+    }
+
+    private fun selectSnapshotTrip(trip: TripState, mileageHistory: MileageHistoryState): TripState {
+        val currentTrip = trip.copy(isTracking = false, currentSpeedKmh = 0.0)
+        if (currentTrip.distanceMeters >= MINIMUM_MEANINGFUL_TRIP_METERS) return currentTrip
+
+        val latestCompleted = mileageHistory.sessions.maxByOrNull { it.finishedAtMillis }
+            ?: return currentTrip
+        return currentTrip.copy(
+            startedAtMillis = latestCompleted.startedAtMillis,
+            distanceMeters = latestCompleted.distanceMeters,
+            startSocPercent = null,
+            startRemainingAh = null,
+            integratedConsumedAh = latestCompleted.consumedAh,
+            integratedConsumedWh = latestCompleted.consumedWh,
+            currentA = 0.0,
+            currentSpeedKmh = 0.0,
+            gpsMessage = "最近一次已完成行程"
+        )
+    }
+
+    private fun mergeMileageHistory(saved: MileageHistoryState): MileageHistoryState {
+        val sessions = (saved.sessions + mileageHistoryStore.loadSessions())
+            .distinctBy { it.startedAtMillis to it.finishedAtMillis }
+            .sortedByDescending { it.startedAtMillis }
+            .take(MAX_MILEAGE_SESSIONS)
+        return saved.copy(sessions = sessions)
     }
 
     private fun write(snapshot: LastBmsSnapshot) {
@@ -145,7 +192,86 @@ internal class LastSnapshotStore(context: Context) {
             .putOptionalFloat(KEY_TRIP_ACCURACY, trip.locationAccuracyMeters)
             .putInt(KEY_TRIP_POINTS, trip.validLocationPoints)
             .putOptionalLong(KEY_TRIP_LAST_LOCATION, trip.lastLocationAtMillis)
+            .putString(KEY_SPEED_RANGE_STATS, trip.speedRangeStats.toJson())
+            .putString(KEY_MILEAGE_HISTORY, snapshot.mileageHistory.toJson())
             .commit()
+    }
+
+    private fun List<SpeedRangeStats>.toJson(): String = JSONArray().apply {
+        forEach { stats ->
+            put(JSONObject().apply {
+                put("targetSpeedKmh", stats.targetSpeedKmh)
+                put("effectiveDistanceMeters", stats.effectiveDistanceMeters)
+                put("effectiveDurationSeconds", stats.effectiveDurationSeconds)
+                put("consumedAh", stats.consumedAh)
+                put("consumedWh", stats.consumedWh)
+            })
+        }
+    }.toString()
+
+    private fun String?.toSpeedRangeStats(): List<SpeedRangeStats>? {
+        if (this.isNullOrBlank()) return null
+        return runCatching {
+            val saved = JSONArray(this)
+            val bySpeed = buildMap {
+                for (index in 0 until saved.length()) {
+                    val item = saved.getJSONObject(index)
+                    val stats = SpeedRangeStats(
+                        targetSpeedKmh = item.getInt("targetSpeedKmh"),
+                        effectiveDistanceMeters = item.optDouble("effectiveDistanceMeters", 0.0),
+                        effectiveDurationSeconds = item.optDouble("effectiveDurationSeconds", 0.0),
+                        consumedAh = item.optDouble("consumedAh", 0.0),
+                        consumedWh = item.optDouble("consumedWh", 0.0)
+                    )
+                    put(stats.targetSpeedKmh, stats)
+                }
+            }
+            defaultSpeedRangeStats().map { bySpeed[it.targetSpeedKmh] ?: it }
+        }.getOrNull()
+    }
+
+    private fun MileageHistoryState.toJson(): String = JSONObject().apply {
+        put("activeDistanceMeters", activeTripDistanceMeters)
+        activeTripStartedAtMillis?.let { put("activeStartedAtMillis", it) }
+        put("sessions", JSONArray().apply {
+            sessions.forEach { session ->
+                put(JSONObject().apply {
+                    put("startedAtMillis", session.startedAtMillis)
+                    put("finishedAtMillis", session.finishedAtMillis)
+                    put("distanceMeters", session.distanceMeters)
+                    put("consumedAh", session.consumedAh)
+                    put("consumedWh", session.consumedWh)
+                })
+            }
+        })
+    }.toString()
+
+    private fun String?.toMileageHistory(): MileageHistoryState {
+        if (this.isNullOrBlank()) return MileageHistoryState()
+        return runCatching {
+            val root = JSONObject(this)
+            val array = root.optJSONArray("sessions") ?: JSONArray()
+            val sessions = buildList {
+                for (index in 0 until array.length()) {
+                    val item = array.getJSONObject(index)
+                    add(
+                        TripSessionRecord(
+                            startedAtMillis = item.getLong("startedAtMillis"),
+                            finishedAtMillis = item.getLong("finishedAtMillis"),
+                            distanceMeters = item.getDouble("distanceMeters"),
+                            consumedAh = item.optDouble("consumedAh", 0.0),
+                            consumedWh = item.optDouble("consumedWh", 0.0)
+                        )
+                    )
+                }
+            }
+            MileageHistoryState(
+                sessions = sessions,
+                activeTripDistanceMeters = root.optDouble("activeDistanceMeters", 0.0),
+                activeTripStartedAtMillis = root.optLong("activeStartedAtMillis")
+                    .takeIf { root.has("activeStartedAtMillis") }
+            )
+        }.getOrDefault(MileageHistoryState())
     }
 
     private fun SharedPreferences.double(key: String): Double? = getString(key, null)?.toDoubleOrNull()
@@ -209,5 +335,9 @@ internal class LastSnapshotStore(context: Context) {
         const val KEY_TRIP_ACCURACY = "trip_accuracy"
         const val KEY_TRIP_POINTS = "trip_points"
         const val KEY_TRIP_LAST_LOCATION = "trip_last_location"
+        const val KEY_SPEED_RANGE_STATS = "speed_range_stats"
+        const val KEY_MILEAGE_HISTORY = "mileage_history"
+        const val MINIMUM_MEANINGFUL_TRIP_METERS = 10.0
+        const val MAX_MILEAGE_SESSIONS = 500
     }
 }

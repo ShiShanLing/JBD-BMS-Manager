@@ -5,6 +5,10 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.bms.jbdmanager.model.BmsBasicInfo
 import com.bms.jbdmanager.model.BmsUiState
 import com.bms.jbdmanager.model.CellSummary
+import com.bms.jbdmanager.model.MileageHistoryState
+import com.bms.jbdmanager.model.SpeedRangeStats
+import com.bms.jbdmanager.model.TripSessionRecord
+import com.bms.jbdmanager.model.TripState
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Before
@@ -18,6 +22,8 @@ class LastSnapshotStoreTest {
     @Before
     fun clearPreviousSnapshot() {
         context.getSharedPreferences("jbd_last_snapshot", android.content.Context.MODE_PRIVATE)
+            .edit().clear().commit()
+        context.getSharedPreferences("jbd_mileage_history", android.content.Context.MODE_PRIVATE)
             .edit().clear().commit()
     }
 
@@ -34,6 +40,40 @@ class LastSnapshotStoreTest {
         assertEquals(54.2, restored.basicInfo.totalVoltageV, 0.001)
         assertEquals(47, restored.basicInfo.stateOfChargePercent)
         assertEquals(listOf(3180, 3182, 3181), restored.cells?.millivolts)
+    }
+
+    @Test
+    fun mileageHistoryIsAvailableFromOfflineSnapshot() {
+        val store = LastSnapshotStore(context)
+        val session = TripSessionRecord(
+            startedAtMillis = 10_000L,
+            finishedAtMillis = 20_000L,
+            distanceMeters = 12_600.0,
+            consumedAh = 4.2,
+            consumedWh = 220.0
+        )
+        store.save(
+            sampleState(55.7, 52, listOf(3276, 3279)).copy(
+                trip = TripState(
+                    distanceMeters = 0.0,
+                    currentRemainingAh = 24.5,
+                    speedRangeStats = listOf(
+                        SpeedRangeStats(40, 22_400.0, 2_020.0, 8.8, 466.0)
+                    )
+                ),
+                mileageHistory = MileageHistoryState(sessions = listOf(session))
+            ),
+            nowMillis = 30_000L
+        )
+
+        val restored = store.load()!!
+
+        assertEquals(1, restored.mileageHistory.sessions.size)
+        assertEquals(12_600.0, restored.mileageHistory.sessions.single().distanceMeters, 0.001)
+        assertEquals(12_600.0, restored.trip.distanceMeters, 0.001)
+        assertEquals(10_000L, restored.trip.startedAtMillis)
+        assertEquals(22_400.0, restored.trip.speedRangeStats.first { it.targetSpeedKmh == 40 }.effectiveDistanceMeters, 0.001)
+        assertEquals(24.5, restored.trip.currentRemainingAh!!, 0.001)
     }
 
     private fun sampleState(voltage: Double, soc: Int, cells: List<Int>): BmsUiState = BmsUiState(

@@ -25,7 +25,8 @@ import com.bms.jbdmanager.model.BmsUiState
 internal fun RangeTestPage(
     state: BmsUiState,
     onRequestLocationPermission: () -> Unit,
-    onClearSpeedRangeStats: () -> Unit
+    onClearSpeedRangeStats: () -> Unit,
+    readOnly: Boolean = false
 ) {
     var selectedTarget by rememberSaveable { mutableIntStateOf(40) }
     var showClearConfirmation by remember { androidx.compose.runtime.mutableStateOf(false) }
@@ -33,11 +34,12 @@ internal fun RangeTestPage(
         ?: state.trip.speedRangeStats.first()
     val currentStats = state.trip.speedRangeStats.firstOrNull { it.accepts(state.trip.currentSpeedKmh) }
     val sampleStatus = when {
+        readOnly -> "最后状态保存时的累计样本"
         !state.trip.isTracking -> "连接 BMS 后自动开始分档统计"
         currentStats != null -> "当前 ${compactNumber(state.trip.currentSpeedKmh)}km/h，自动计入 ${currentStats.targetSpeedKmh}km/h 档"
         else -> "当前速度不在预设档位，综合行程继续记录"
     }
-    val sampleColor = if (state.trip.isTracking && currentStats != null) MaterialTheme.colorScheme.primary
+    val sampleColor = if (readOnly || state.trip.isTracking && currentStats != null) MaterialTheme.colorScheme.primary
     else MaterialTheme.colorScheme.onSurfaceVariant
     val estimatedRange = selectedStats.estimatedRemainingKm(state.trip.currentRemainingAh)
 
@@ -54,15 +56,19 @@ internal fun RangeTestPage(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text("自动速度续航", fontSize = 17.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
                         Text(
-                            if (state.trip.isTracking) "自动统计中" else "等待连接",
-                            color = if (state.trip.isTracking) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                            if (readOnly) "历史记录" else if (state.trip.isTracking) "自动统计中" else "等待连接",
+                            color = if (readOnly || state.trip.isTracking) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                             fontSize = 11.sp,
                             fontWeight = FontWeight.SemiBold
                         )
                     }
                     Spacer(Modifier.height(5.dp))
                     Text(
-                        "行驶数据会自动归入最接近的速度档位，并长期累计保存。骑行样本越多，续航估算越稳定。",
+                        if (readOnly) {
+                            "使用最后保存的剩余容量和长期累计样本，估算不同速度下大约还能行驶多远。"
+                        } else {
+                            "行驶数据会自动归入最接近的速度档位，并长期累计保存。骑行样本越多，续航估算越稳定。"
+                        },
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = 11.sp,
                         lineHeight = 15.sp
@@ -124,10 +130,15 @@ internal fun RangeTestPage(
         item {
             MetricRow(
                 Metric(
-                    "当前速度",
-                    "${compactNumber(state.trip.currentSpeedKmh)} km/h",
-                    currentStats?.let { "正在计入 ${it.targetSpeedKmh} 档" } ?: "未进入速度档",
-                    if (currentStats != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                    if (readOnly) "保存时 SOC" else "当前速度",
+                    if (readOnly) "${state.basicInfo?.stateOfChargePercent ?: 0}%"
+                    else "${compactNumber(state.trip.currentSpeedKmh)} km/h",
+                    if (readOnly) {
+                        state.trip.currentRemainingAh?.let { "剩余 ${compactNumber(it)} Ah" } ?: "未保存剩余容量"
+                    } else {
+                        currentStats?.let { "正在计入 ${it.targetSpeedKmh} 档" } ?: "未进入速度档"
+                    },
+                    if (readOnly || currentStats != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                 ),
                 Metric(
                     "查看速度区间",
@@ -171,23 +182,27 @@ internal fun RangeTestPage(
             )
         }
         item {
-            if (!state.locationPermissionGranted) {
+            if (!readOnly && !state.locationPermissionGranted) {
                 OutlinedButton(onClick = onRequestLocationPermission, modifier = Modifier.fillMaxWidth()) {
                     Text("允许精确位置权限")
                 }
             }
         }
         item {
-            OutlinedButton(
-                onClick = { showClearConfirmation = true },
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text("清空长期累计样本", color = MaterialTheme.colorScheme.error)
+            if (!readOnly) {
+                OutlinedButton(
+                    onClick = { showClearConfirmation = true },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("清空长期累计样本", color = MaterialTheme.colorScheme.error)
+                }
             }
         }
         item {
             Text(
-                if (state.trip.isTracking) {
+                if (readOnly) {
+                    "这是最后状态保存时的只读数据，可切换速度档位查看当时剩余电量对应的预计续航。"
+                } else if (state.trip.isTracking) {
                     "所有速度档位会在后台同步长期积累。切换按钮只查看对应档位结果；单档有效里程达到 3km 后提供初步估算。"
                 } else {
                     "重新连接 BMS 后会在现有累计样本上继续统计，不会自动清零。"
@@ -199,7 +214,7 @@ internal fun RangeTestPage(
             )
         }
     }
-    if (showClearConfirmation) {
+    if (!readOnly && showClearConfirmation) {
         AlertDialog(
             onDismissRequest = { showClearConfirmation = false },
             title = { Text("清空续航样本？") },

@@ -334,7 +334,7 @@ private fun PipMetric(
 @Composable
 private fun PipChargeBar(progress: Float, accent: Color) {
     val fill = progress.coerceIn(0f, 1f)
-    BoxWithConstraints(
+    Box(
         modifier = Modifier
             .fillMaxWidth()
             .height(8.dp)

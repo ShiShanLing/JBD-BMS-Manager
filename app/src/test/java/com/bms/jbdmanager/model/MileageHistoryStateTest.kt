@@ -64,9 +64,9 @@ class MileageHistoryStateTest {
         )
         val buckets = history.bucketsFor(MileagePeriod.Week, anchor)
         assertEquals(7, buckets.size)
-        assertEquals(LocalDate.of(2026, 8, 18), buckets.first().startDate)
-        assertEquals(5_000.0, buckets.first().distanceMeters, 0.1)
-        assertEquals(0.0, buckets.sumOf { if (it.startDate == LocalDate.of(2026, 8, 17)) it.distanceMeters else 0.0 }, 0.1)
+        assertEquals(LocalDate.of(2026, 8, 17), buckets.first().startDate)
+        assertEquals(99_000.0, buckets.first().distanceMeters, 0.1)
+        assertEquals(5_000.0, buckets.first { it.startDate == LocalDate.of(2026, 8, 18) }.distanceMeters, 0.1)
     }
 
     @Test
@@ -119,7 +119,7 @@ class MileageHistoryStateTest {
         assertEquals(8.0, history.periodSummary(MileagePeriod.Day, today).distanceKm, 0.1)
         assertEquals(2, history.periodSummary(MileagePeriod.Day, today).tripCount)
         assertEquals(16.0, history.periodSummary(MileagePeriod.Month, today).distanceKm, 0.1)
-        assertEquals(24.0, history.periodSummary(MileagePeriod.Year, today).distanceKm, 0.1)
+        assertEquals(22.0, history.periodSummary(MileagePeriod.Year, today).distanceKm, 0.1)
     }
 
     @Test

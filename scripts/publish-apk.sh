@@ -3,11 +3,12 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 APK="${1:-$ROOT/app/build/outputs/apk/debug/app-debug.apk}"
-NOTES="${2:-根据当前构建发布。}"
 FORCE="${3:-false}"
 HOST="${UPDATE_HOST:-baidu-bcc}"
 REMOTE_DIR="/var/www/jbd-bms"
 REPO="${GITHUB_REPO:-ShiShanLing/JBD-BMS-Manager}"
+SERVER_APK_NAME="latest.apk"
+SERVER_APK_URL="${SERVER_APK_URL:-http://106.13.175.227/jbd-bms/$SERVER_APK_NAME}"
 
 if [[ ! -f "$APK" ]]; then
   echo "找不到安装包：$APK" >&2
@@ -23,9 +24,21 @@ if [[ -z "$VERSION_CODE" || -z "$VERSION_NAME" ]]; then
   exit 1
 fi
 
+CHANGELOG_NOTES="$(awk -v version="$VERSION_NAME" '
+  index($0, "## [" version "]") == 1 { capture = 1; next }
+  capture && /^## \[/ { exit }
+  capture { print }
+' "$ROOT/CHANGELOG.md")"
+if ! grep -q '[^[:space:]]' <<<"$CHANGELOG_NOTES"; then
+  echo "CHANGELOG.md 中缺少版本 $VERSION_NAME 的详细更新记录" >&2
+  exit 1
+fi
+NOTES="${2:-$CHANGELOG_NOTES}"
+
 TAG="v${VERSION_NAME}"
 ASSET_NAME="JBD-BMS-Manager-v${VERSION_NAME}.apk"
-APK_URL="https://github.com/${REPO}/releases/download/${TAG}/${ASSET_NAME}"
+GITHUB_APK_URL="https://github.com/${REPO}/releases/download/${TAG}/${ASSET_NAME}"
+APK_URL="${PUBLIC_APK_URL:-$SERVER_APK_URL}"
 TITLE="电动BMS v${VERSION_NAME}"
 
 STAGING="$(mktemp -d)"
@@ -41,6 +54,10 @@ else
     --title "$TITLE" \
     --notes "$NOTES"
 fi
+
+# 服务器始终只保留一个 latest.apk。先完整上传临时文件，再原子替换旧包。
+scp -q "$APK" "$HOST:$REMOTE_DIR/$SERVER_APK_NAME.uploading"
+ssh "$HOST" "chmod 644 '$REMOTE_DIR/$SERVER_APK_NAME.uploading' && mv -f '$REMOTE_DIR/$SERVER_APK_NAME.uploading' '$REMOTE_DIR/$SERVER_APK_NAME'"
 
 TMP_JSON="$(mktemp)"
 VERSION_URL="${VERSION_URL:-http://106.13.175.227/jbd-bms/version.json}"
@@ -124,5 +141,6 @@ rm -f "$TMP_JSON"
 ssh "$HOST" "chmod 644 '$REMOTE_DIR/version.json'"
 
 echo "已发布 v${VERSION_NAME} (versionCode ${VERSION_CODE})"
-echo "  GitHub: ${APK_URL}"
+echo "  GitHub: ${GITHUB_APK_URL}"
+echo "  服务器: ${APK_URL}"
 echo "  检查更新: http://106.13.175.227/jbd-bms/version.json"

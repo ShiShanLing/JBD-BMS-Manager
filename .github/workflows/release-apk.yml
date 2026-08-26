@@ -56,13 +56,23 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           VERSION_NAME=$(sed -n 's/.*versionName = "\([^"]*\)".*/\1/p' app/build.gradle.kts | head -n 1)
+          awk -v version="$VERSION_NAME" '
+            index($0, "## [" version "]") == 1 { capture = 1; next }
+            capture && /^## \[/ { exit }
+            capture { print }
+          ' CHANGELOG.md > release-notes.md
+          if ! grep -q '[^[:space:]]' release-notes.md; then
+            echo "CHANGELOG.md 中缺少版本 $VERSION_NAME 的详细更新记录" >&2
+            exit 1
+          fi
           TAG="v${VERSION_NAME}"
           APK_NAME="JBD-BMS-Manager-v${VERSION_NAME}.apk"
           cp app/build/outputs/apk/debug/app-debug.apk "$APK_NAME"
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "$APK_NAME" --clobber
+            gh release edit "$TAG" --title "电动BMS v${VERSION_NAME}" --notes-file release-notes.md
           else
             gh release create "$TAG" "$APK_NAME" \
               --title "电动BMS v${VERSION_NAME}" \
-              --notes "CI 自动构建，使用与历史版本一致的固定调试签名，可直接覆盖安装。"
+              --notes-file release-notes.md
           fi

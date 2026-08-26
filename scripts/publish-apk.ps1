@@ -1,6 +1,6 @@
 param(
     [string]$ApkPath = "$PSScriptRoot\..\app\build\outputs\apk\debug\app-debug.apk",
-    [string]$Notes = "根据当前构建发布。",
+    [string]$Notes = "",
     [switch]$Force,
     [string]$HostAlias = $(if ($env:UPDATE_HOST) { $env:UPDATE_HOST } else { "baidu-bcc" }),
     [string]$RemoteDir = '/var/www/jbd-bms',
@@ -20,9 +20,29 @@ $content = Get-Content $GradleFile -Raw
 if ($content -match 'versionCode\s*=\s*(\d+)') { $VersionCode = [int]$Matches[1] } else { throw "无法读取 versionCode" }
 if ($content -match 'versionName\s*=\s*"([^"]+)"') { $VersionName = $Matches[1] } else { throw '无法读取 versionName' }
 
+$ChangelogPath = Join-Path $Root "CHANGELOG.md"
+if (-not (Test-Path $ChangelogPath)) { throw "找不到 CHANGELOG.md" }
+$CollectNotes = $false
+$ChangelogLines = New-Object System.Collections.Generic.List[string]
+foreach ($Line in (Get-Content $ChangelogPath)) {
+    if ($Line.StartsWith("## [$VersionName]")) {
+        $CollectNotes = $true
+        continue
+    }
+    if ($CollectNotes -and $Line.StartsWith("## [")) { break }
+    if ($CollectNotes) { $ChangelogLines.Add($Line) }
+}
+$ChangelogNotes = (($ChangelogLines -join "`n").Trim())
+if ([string]::IsNullOrWhiteSpace($ChangelogNotes)) {
+    throw "CHANGELOG.md 中缺少版本 $VersionName 的详细更新记录"
+}
+if ([string]::IsNullOrWhiteSpace($Notes)) { $Notes = $ChangelogNotes }
+
 $Tag = "v$VersionName"
 $AssetName = "JBD-BMS-Manager-v$VersionName.apk"
-$ApkUrl = "https://github.com/$Repo/releases/download/$Tag/$AssetName"
+$GitHubApkUrl = "https://github.com/$Repo/releases/download/$Tag/$AssetName"
+$ServerApkName = "latest.apk"
+$ApkUrl = if ($env:PUBLIC_APK_URL) { $env:PUBLIC_APK_URL } else { "http://106.13.175.227/jbd-bms/$ServerApkName" }
 $Title = "电动BMS v$VersionName"
 $Staging = Join-Path $env:TEMP ("jbd-apk-" + [guid]::NewGuid().ToString("n"))
 New-Item -ItemType Directory -Path $Staging | Out-Null
@@ -38,6 +58,10 @@ try {
         gh release create $Tag $StagedApk --repo $Repo --title $Title --notes $Notes
     }
     if ($LASTEXITCODE -ne 0) { throw "GitHub Release 上传失败，请先执行 gh auth login" }
+
+    scp -q $ApkPath "${HostAlias}:${RemoteDir}/$ServerApkName.uploading"
+    ssh $HostAlias "chmod 644 '$RemoteDir/$ServerApkName.uploading' && mv -f '$RemoteDir/$ServerApkName.uploading' '$RemoteDir/$ServerApkName'"
+    if ($LASTEXITCODE -ne 0) { throw "服务器 APK 上传失败" }
 
     $known = @{
         35 = @("0.5.5", "新增里程 Tab：日历与柱状图统计日/周/月/年骑行里程；概览与画中画显示今日总里程；优化骑行 PiP 布局。")
@@ -112,7 +136,8 @@ try {
     Remove-Item $TmpJson -Force
 
     Write-Host "已发布 v$VersionName (versionCode $VersionCode)"
-    Write-Host "  GitHub: $ApkUrl"
+    Write-Host "  GitHub: $GitHubApkUrl"
+    Write-Host "  服务器: $ApkUrl"
     Write-Host "  检查更新: $VersionUrl"
 } finally {
     Remove-Item $Staging -Recurse -Force -ErrorAction SilentlyContinue

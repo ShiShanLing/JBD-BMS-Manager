@@ -48,6 +48,7 @@ import com.bms.jbdmanager.safety.TemperatureAlertNotifier
 import com.bms.jbdmanager.safety.TemperatureSafetyMonitor
 import com.bms.jbdmanager.trip.TripTracker
 import com.bms.jbdmanager.trip.TripTrackingService
+import com.bms.jbdmanager.trip.shouldAttemptTripServiceStart
 import com.bms.jbdmanager.trip.GpsSpeedTracker
 import com.bms.jbdmanager.update.AppUpdateClient
 import com.bms.jbdmanager.update.AppUpdatePolicy
@@ -119,6 +120,7 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
     private var lastFingerprintUiRefreshAtMillis = 0L
     private var preparedDataRestore: PreparedDataRestore? = null
     private var lastCapacityTestPersistAtMillis = 0L
+    private var lastTripServiceStartAttemptAtMillis = 0L
 
     init {
         TripTracker.initialize(application)
@@ -1461,21 +1463,40 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
         val state = _uiState.value
         if (!state.locationPermissionGranted || state.phase != ConnectionPhase.Ready || info == null) return
         if (TripTracker.isAutoStartSuppressed()) return
-        if (!TripTracker.state.value.isTracking) {
+        val startingNewTrip = !TripTracker.state.value.isTracking
+        if (startingNewTrip) {
             TripTracker.begin(info)
-            val serviceStarted = runCatching {
-                ContextCompat.startForegroundService(
-                    getApplication(),
-                    tripServiceIntent.setAction(TripTrackingService.ACTION_START)
-                )
-            }.isSuccess
-            if (!serviceStarted) {
-                TripTracker.finish("无法启动后台定位，请保持 App 在前台后重试")
-                onError("GPS 行程服务启动失败，请保持 App 在前台并重新连接")
-                return
-            }
+        }
+        if (!ensureTripTrackingService() && startingNewTrip) {
+            TripTracker.finish("无法启动后台定位，请保持 App 在前台后重试")
+            onError("GPS 行程服务启动失败，请保持 App 在前台并重新连接")
+            return
         }
         TripTracker.updateBms(info)
+    }
+
+    /**
+     * TripTracker 的运行状态会落盘，但 Android 可能已经终止定位服务。不能仅凭
+     * isTracking 判断服务仍存在；进程恢复和蓝牙重连后必须重新确认并补启动。
+     */
+    private fun ensureTripTrackingService(): Boolean {
+        if (TripTrackingService.isRunning) return true
+        val now = System.currentTimeMillis()
+        if (!shouldAttemptTripServiceStart(
+                tripIsTracking = TripTracker.state.value.isTracking,
+                serviceIsRunning = TripTrackingService.isRunning,
+                nowMillis = now,
+                lastAttemptAtMillis = lastTripServiceStartAttemptAtMillis,
+                retryIntervalMillis = TRIP_SERVICE_RETRY_INTERVAL_MS
+            )
+        ) return true
+        lastTripServiceStartAttemptAtMillis = now
+        return runCatching {
+            ContextCompat.startForegroundService(
+                getApplication(),
+                tripServiceIntent.setAction(TripTrackingService.ACTION_START)
+            )
+        }.isSuccess
     }
 
     private fun finishTripTracking() {
@@ -1558,6 +1579,7 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
         private const val FINGERPRINT_UI_REFRESH_INTERVAL_MILLIS = 60_000L
         private const val STALE_AFTER_MS = 5_000L
         private const val RECONNECT_AFTER_STALE_MS = 10_000L
+        private const val TRIP_SERVICE_RETRY_INTERVAL_MS = 5_000L
         private val RECONNECT_DELAYS_SECONDS = listOf(2, 5, 10, 30)
     }
 }

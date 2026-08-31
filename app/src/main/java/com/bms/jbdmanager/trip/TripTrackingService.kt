@@ -29,7 +29,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 class TripTrackingService : Service(), LocationListener {
@@ -37,7 +39,9 @@ class TripTrackingService : Service(), LocationListener {
     private var lastAcceptedLocation: Location? = null
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var notificationJob: Job? = null
+    private var locationWatchdogJob: Job? = null
     private var locationUpdatesRequested = false
+    private var lastLocationCallbackAtElapsedMillis = 0L
     private var foregroundStarted = false
     private var lastNotificationUpdateAtMillis = 0L
     private val speedSamples = ArrayDeque<Pair<Long, Double>>()
@@ -45,6 +49,7 @@ class TripTrackingService : Service(), LocationListener {
 
     override fun onCreate() {
         super.onCreate()
+        isRunning = true
         TripTracker.initialize(this)
         locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
         createNotificationChannel()
@@ -63,15 +68,16 @@ class TripTrackingService : Service(), LocationListener {
         foregroundStarted = true
         observeTripUpdates()
         requestLocationUpdates()
+        observeLocationHealth()
         return START_STICKY
     }
 
-    private fun requestLocationUpdates() {
-        if (locationUpdatesRequested) return
+    private fun requestLocationUpdates(force: Boolean = false) {
+        if (locationUpdatesRequested && !force) return
         val hasFineLocation = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) ==
             PackageManager.PERMISSION_GRANTED
         if (!hasFineLocation) {
-            TripTracker.updateGpsStatus("需要精确位置权限")
+            TripTracker.finish("精确位置权限不可用，行程已停止")
             stopSelf()
             return
         }
@@ -79,7 +85,13 @@ class TripTrackingService : Service(), LocationListener {
             TripTracker.updateGpsStatus("请开启手机定位服务")
         }
         runCatching {
-            if (locationUpdatesRequested) locationManager.removeUpdates(this)
+            if (force && locationUpdatesRequested) {
+                locationManager.removeUpdates(this)
+                locationUpdatesRequested = false
+                lastAcceptedLocation = null
+                speedSamples.clear()
+                average5SecondSpeedKmh = 0.0
+            }
             locationManager.requestLocationUpdates(
                 LocationManager.GPS_PROVIDER,
                 LOCATION_INTERVAL_MS,
@@ -87,12 +99,15 @@ class TripTrackingService : Service(), LocationListener {
                 this
             )
             locationUpdatesRequested = true
+            lastLocationCallbackAtElapsedMillis = SystemClock.elapsedRealtime()
         }.onFailure {
+            locationUpdatesRequested = false
             TripTracker.updateGpsStatus("GPS 启动失败：${it.message.orEmpty()}")
         }
     }
 
     override fun onLocationChanged(location: Location) {
+        lastLocationCallbackAtElapsedMillis = SystemClock.elapsedRealtime()
         if (!location.hasAccuracy() || location.accuracy > MAX_ACCEPTED_ACCURACY_METERS) {
             TripTracker.updateGpsStatus("GPS 信号较弱，等待更准确定位")
             return
@@ -144,7 +159,10 @@ class TripTrackingService : Service(), LocationListener {
     }
 
     override fun onProviderEnabled(provider: String) {
-        if (provider == LocationManager.GPS_PROVIDER) TripTracker.updateGpsStatus("正在等待 GPS 定位")
+        if (provider == LocationManager.GPS_PROVIDER) {
+            TripTracker.updateGpsStatus("正在等待 GPS 定位")
+            requestLocationUpdates(force = true)
+        }
     }
 
     @Deprecated("Deprecated in Android")
@@ -155,6 +173,7 @@ class TripTrackingService : Service(), LocationListener {
         locationUpdatesRequested = false
         serviceScope.cancel()
         stopForeground(STOP_FOREGROUND_REMOVE)
+        isRunning = false
         super.onDestroy()
     }
 
@@ -180,6 +199,26 @@ class TripTrackingService : Service(), LocationListener {
                 ) {
                     lastNotificationUpdateAtMillis = now
                     postNotificationUpdate(state)
+                }
+            }
+        }
+    }
+
+    private fun observeLocationHealth() {
+        if (locationWatchdogJob != null) return
+        locationWatchdogJob = serviceScope.launch {
+            while (isActive) {
+                delay(LOCATION_WATCHDOG_INTERVAL_MS)
+                if (!TripTracker.state.value.isTracking) continue
+                if (!locationUpdatesRequested) {
+                    TripTracker.updateGpsStatus("GPS 监听未运行，正在重新启动")
+                    requestLocationUpdates(force = true)
+                    continue
+                }
+                val silentFor = SystemClock.elapsedRealtime() - lastLocationCallbackAtElapsedMillis
+                if (silentFor >= LOCATION_CALLBACK_TIMEOUT_MS) {
+                    TripTracker.updateGpsStatus("GPS 长时间无数据，正在重新连接定位")
+                    requestLocationUpdates(force = true)
                 }
             }
         }
@@ -279,12 +318,18 @@ class TripTrackingService : Service(), LocationListener {
         if (hasSpeedAccuracy()) speedAccuracyMetersPerSecond else null
 
     companion object {
+        @Volatile
+        var isRunning: Boolean = false
+            private set
+
         const val ACTION_START = "com.bms.jbdmanager.trip.START"
         const val ACTION_STOP = "com.bms.jbdmanager.trip.STOP"
         private const val NOTIFICATION_CHANNEL_ID = "bms_trip_tracking"
         private const val NOTIFICATION_ID = 3202
         private const val NOTIFICATION_UPDATE_INTERVAL_MS = 5_000L
         private const val LOCATION_INTERVAL_MS = 1_000L
+        private const val LOCATION_WATCHDOG_INTERVAL_MS = 15_000L
+        private const val LOCATION_CALLBACK_TIMEOUT_MS = 45_000L
         private const val MAX_ACCEPTED_ACCURACY_METERS = 25f
         private const val MAX_LOCATION_GAP_SECONDS = 30.0
         private const val MAX_PLAUSIBLE_SPEED_MPS = 35.0

@@ -53,7 +53,7 @@ app/build/outputs/apk/debug/app-debug.apk
 
 在线更新服务的最低可更新版本为 **0.5.0（versionCode 30）**。服务器会根据 App 请求中的版本号拒绝 0.5.0 以下版本访问版本清单和 `latest.apk`，返回 HTTP 410；对应 Nginx 规则保存在 `server/jbd-bms-update-cutoff.nginx.conf`。
 
-服务器只提供体积很小的 `version.json`；安装包默认从对应版本的 GitHub Releases 下载，发布脚本不会再上传或覆盖服务器 `latest.apk`。
+服务器只提供体积很小的 `version.json`；固定更新地址为 `https://shishanling.cn/jbd-bms/version.json`。安装包默认从对应版本的 GitHub Releases 下载，发布脚本不会再上传或覆盖服务器 `latest.apk`。
 
 每次代码推送到 `main` 分支后，GitHub Actions 会自动执行单元测试、Lint 检查和 APK 构建，并在仓库的 **Releases** 页面创建一个新的测试版本。APK 使用固定的调试签名，可以直接覆盖安装前一个测试版本。
 

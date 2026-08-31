@@ -56,7 +56,7 @@ else
 fi
 
 TMP_JSON="$(mktemp)"
-VERSION_URL="${VERSION_URL:-http://106.13.175.227/jbd-bms/version.json}"
+VERSION_URL="${VERSION_URL:-https://shishanling.cn/jbd-bms/version.json}"
 python3 - "$TMP_JSON" "$VERSION_CODE" "$VERSION_NAME" "$NOTES" "$FORCE" "$APK_URL" "$VERSION_URL" "$MIN_UPDATABLE_VERSION_CODE" "$MIN_UPDATABLE_VERSION_NAME" <<'PY'
 import json
 import sys
@@ -141,4 +141,4 @@ ssh "$HOST" "chmod 644 '$REMOTE_DIR/version.json'"
 echo "已发布 v${VERSION_NAME} (versionCode ${VERSION_CODE})"
 echo "  GitHub: ${GITHUB_APK_URL}"
 echo "  应用内下载: ${APK_URL}"
-echo "  检查更新: http://106.13.175.227/jbd-bms/version.json"
+echo "  检查更新: $VERSION_URL"

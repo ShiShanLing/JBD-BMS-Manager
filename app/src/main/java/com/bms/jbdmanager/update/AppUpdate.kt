@@ -3,7 +3,7 @@ package com.bms.jbdmanager.update
 import org.json.JSONObject
 
 internal object AppUpdateConfig {
-    const val VERSION_URL = "http://106.13.175.227/jbd-bms/version.json"
+    const val VERSION_URL = "https://shishanling.cn/jbd-bms/version.json"
 }
 
 data class AppUpdateEntry(

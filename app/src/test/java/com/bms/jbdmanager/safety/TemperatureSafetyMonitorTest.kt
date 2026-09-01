@@ -56,6 +56,31 @@ class TemperatureSafetyMonitorTest {
         assertTrue(monitor.update(info(50.0), null, 9_000L).recovered)
     }
 
+    @Test
+    fun tenSecondWindowDetectsRapidRiseWithoutSixtySecondDilution() {
+        val monitor = TemperatureSafetyMonitor()
+        monitor.update(info(40.0), null, 0L)
+        monitor.update(info(40.0), null, 50_000L)
+        assertNull(monitor.update(info(42.0), null, 58_000L).alert)
+        assertNull(monitor.update(info(42.2), null, 59_000L).alert)
+
+        val alert = monitor.update(info(42.4), null, 60_000L).alert
+
+        assertEquals(TemperatureAlertLevel.Warning, alert?.level)
+        assertEquals(10, alert?.riseWindowSeconds)
+        assertTrue((alert?.riseRateCPerMinute ?: 0.0) >= 8.0)
+        assertTrue(alert?.message?.contains("近10秒升温速度") == true)
+    }
+
+    @Test
+    fun riseShorterThanMinimumWindowDoesNotTriggerOnItsOwn() {
+        val monitor = TemperatureSafetyMonitor()
+        monitor.update(info(43.0), null, 1_000L)
+        monitor.update(info(46.0), null, 5_000L)
+
+        assertNull(monitor.update(info(46.5), null, 7_000L).alert)
+    }
+
     private fun info(maximumTemperatureC: Double, protectionMask: Int = 0) = BmsBasicInfo(
         totalVoltageV = 52.0,
         currentA = -15.0,

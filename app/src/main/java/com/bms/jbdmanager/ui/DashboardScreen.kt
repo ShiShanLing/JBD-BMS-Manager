@@ -37,6 +37,7 @@ import com.bms.jbdmanager.ui.theme.JbdBmsTheme
 internal fun Dashboard(
     state: BmsUiState,
     onShowDevices: () -> Unit,
+    onDisconnect: () -> Unit,
     onSubmitPassword: (String) -> Boolean,
     onRequestLocationPermission: () -> Unit,
     onRequestExit: () -> Unit,
@@ -61,51 +62,71 @@ internal fun Dashboard(
 ) {
     var tab by rememberSaveable { mutableIntStateOf(initialTab) }
     var historySubpageOpen by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(state.authenticationRequired) {
+        if (state.authenticationRequired) tab = 4
+    }
     BackHandler(onBack = onShowDevices)
-    Column(Modifier.fillMaxSize()) {
-        if (!historySubpageOpen) {
-            DeviceSummary(
-                state = state,
-                onShowDevices = onShowDevices,
-                onSubmitPassword = onSubmitPassword,
-                onRequestExit = onRequestExit,
-                onShowAppVersion = onShowAppVersion,
-                onShowDataManagement = onShowDataManagement,
-                onRequestFullScreenTemperaturePermission = onRequestFullScreenTemperaturePermission,
-                onRequestOverlayTemperaturePermission = onRequestOverlayTemperaturePermission,
-                onTestCriticalTemperatureAlert = onTestCriticalTemperatureAlert,
-                onEnterPictureInPicture = onEnterPictureInPicture,
-                isPreview = isPreview
-            )
-        }
-        Box(Modifier.weight(1f).fillMaxWidth()) {
-            when (tab) {
-                0 -> Overview(
-                    state,
-                    onRequestLocationPermission,
-                    onCyclePreviewScenario = if (isPreview) onCyclePreviewScenario else null
-                )
-                1 -> ProtectionParamsPage(state, onRefreshProtectionParams)
-                2 -> RangeTestPage(state, onRequestLocationPermission, onClearSpeedRangeStats)
-                else -> BatteryHistoryPage(
+    Box(Modifier.fillMaxSize()) {
+        Column(Modifier.fillMaxSize()) {
+            if (!historySubpageOpen) {
+                DeviceSummary(
                     state = state,
-                    onLoadBatteryTrend = onLoadBatteryTrend,
-                    onAddCapacityRecord = onAddCapacityHealthRecord,
-                    onDeleteCapacityRecord = onDeleteCapacityHealthRecord,
-                    onStartAutomaticCapacityTest = onStartAutomaticCapacityTest,
-                    onFinishAutomaticCapacityTest = onFinishAutomaticCapacityTest,
-                    onDiscardAutomaticCapacityTest = onDiscardAutomaticCapacityTest,
-                    onSaveAutomaticCapacityTestResult = onSaveAutomaticCapacityTestResult,
-                    onShowDataManagement = onShowDataManagement,
-                    onSubpageChanged = { historySubpageOpen = it }
+                    onShowDevices = onShowDevices,
+                    onDisconnect = onDisconnect,
+                    onEnterPictureInPicture = onEnterPictureInPicture
                 )
+            }
+            Box(Modifier.weight(1f).fillMaxWidth()) {
+                when (tab) {
+                    0 -> Overview(
+                        state,
+                        onRequestLocationPermission,
+                        onCyclePreviewScenario = if (isPreview) onCyclePreviewScenario else null
+                    )
+                    1 -> ProtectionParamsPage(state, onRefreshProtectionParams)
+                    2 -> RangeTestPage(state, onRequestLocationPermission, onClearSpeedRangeStats)
+                    3 -> BatteryHistoryPage(
+                        state = state,
+                        onLoadBatteryTrend = onLoadBatteryTrend,
+                        onAddCapacityRecord = onAddCapacityHealthRecord,
+                        onDeleteCapacityRecord = onDeleteCapacityHealthRecord,
+                        onStartAutomaticCapacityTest = onStartAutomaticCapacityTest,
+                        onFinishAutomaticCapacityTest = onFinishAutomaticCapacityTest,
+                        onDiscardAutomaticCapacityTest = onDiscardAutomaticCapacityTest,
+                        onSaveAutomaticCapacityTestResult = onSaveAutomaticCapacityTestResult,
+                        onShowDataManagement = onShowDataManagement,
+                        onSubpageChanged = { historySubpageOpen = it }
+                    )
+                    else -> DeviceSettingsPage(
+                        state = state,
+                        onSubmitPassword = onSubmitPassword,
+                        onShowAppVersion = onShowAppVersion,
+                        onShowDataManagement = onShowDataManagement,
+                        onRequestFullScreenTemperaturePermission = onRequestFullScreenTemperaturePermission,
+                        onRequestOverlayTemperaturePermission = onRequestOverlayTemperaturePermission,
+                        onTestCriticalTemperatureAlert = onTestCriticalTemperatureAlert
+                    )
+                }
+            }
+            if (!historySubpageOpen) {
+                DashboardBottomNavigation(selected = tab, includeSettings = true, onSelect = {
+                    tab = it
+                    if (it != 3) historySubpageOpen = false
+                })
             }
         }
         if (!historySubpageOpen) {
-            DashboardBottomNavigation(selected = tab, onSelect = {
-                tab = it
-                if (it != 3) historySubpageOpen = false
-            })
+            FloatingActionButton(
+                onClick = onRequestExit,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(end = 14.dp, bottom = 92.dp)
+                    .size(50.dp),
+                containerColor = MaterialTheme.colorScheme.errorContainer,
+                contentColor = MaterialTheme.colorScheme.onErrorContainer
+            ) {
+                Text("退出", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+            }
         }
     }
 }
@@ -113,20 +134,9 @@ internal fun Dashboard(
 private fun DeviceSummary(
     state: BmsUiState,
     onShowDevices: () -> Unit,
-    onSubmitPassword: (String) -> Boolean,
-    onRequestExit: () -> Unit,
-    onShowAppVersion: () -> Unit,
-    onShowDataManagement: () -> Unit,
-    onRequestFullScreenTemperaturePermission: () -> Unit,
-    onRequestOverlayTemperaturePermission: () -> Unit,
-    onTestCriticalTemperatureAlert: () -> Unit,
-    onEnterPictureInPicture: () -> Unit,
-    isPreview: Boolean
+    onDisconnect: () -> Unit,
+    onEnterPictureInPicture: () -> Unit
 ) {
-    var showSettings by remember { androidx.compose.runtime.mutableStateOf(false) }
-    LaunchedEffect(state.authenticationRequired) {
-        if (state.authenticationRequired) showSettings = true
-    }
     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
             Text("电池详情", fontWeight = FontWeight.Bold, fontSize = 16.sp)
@@ -165,42 +175,31 @@ private fun DeviceSummary(
             onClick = onShowDevices,
             modifier = Modifier.height(34.dp),
             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp)
-        ) { Text(if (isPreview) "退出演示" else "设备", fontSize = 11.sp) }
+        ) { Text("列表", fontSize = 11.sp) }
         Spacer(Modifier.width(6.dp))
         OutlinedButton(
-            onClick = { showSettings = true },
-            modifier = Modifier.height(34.dp),
-            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp)
-        ) { Text("设置", fontSize = 11.sp) }
-        Spacer(Modifier.width(6.dp))
-        OutlinedButton(
-            onClick = onRequestExit,
+            onClick = onDisconnect,
             modifier = Modifier.height(34.dp),
             contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp)
-        ) { Text("退出", color = MaterialTheme.colorScheme.error, fontSize = 11.sp) }
-    }
-    if (showSettings) {
-        DeviceSettingsDialog(
-            state = state,
-            onDismiss = { showSettings = false },
-            onSubmitPassword = onSubmitPassword,
-            onShowAppVersion = onShowAppVersion,
-            onShowDataManagement = onShowDataManagement,
-            onRequestFullScreenTemperaturePermission = onRequestFullScreenTemperaturePermission,
-            onRequestOverlayTemperaturePermission = onRequestOverlayTemperaturePermission,
-            onTestCriticalTemperatureAlert = onTestCriticalTemperatureAlert
-        )
+        ) { Text("断开", color = MaterialTheme.colorScheme.primary, fontSize = 11.sp) }
     }
 }
 
 @Composable
-internal fun DashboardBottomNavigation(selected: Int, onSelect: (Int) -> Unit) {
-    val items = listOf(
-        Triple("概览", R.drawable.ic_nav_overview, "查看电池概览"),
-        Triple("保护", R.drawable.ic_nav_protection, "查看保护参数"),
-        Triple("续航", R.drawable.ic_nav_range, "查看续航测试"),
-        Triple("历史", R.drawable.ic_history, "查看历史记录")
-    )
+internal fun DashboardBottomNavigation(
+    selected: Int,
+    includeSettings: Boolean = false,
+    onSelect: (Int) -> Unit
+) {
+    val items = buildList {
+        add(Triple("概览", R.drawable.ic_nav_overview, "查看电池概览"))
+        add(Triple("保护", R.drawable.ic_nav_protection, "查看保护参数"))
+        add(Triple("续航", R.drawable.ic_nav_range, "查看续航测试"))
+        add(Triple("历史", R.drawable.ic_history, "查看历史记录"))
+        if (includeSettings) {
+            add(Triple("设置", R.drawable.ic_nav_settings, "查看设备设置"))
+        }
+    }
     NavigationBar(
         modifier = Modifier.navigationBarsPadding().height(58.dp),
         containerColor = MaterialTheme.colorScheme.surface,
@@ -229,9 +228,8 @@ internal fun DashboardBottomNavigation(selected: Int, onSelect: (Int) -> Unit) {
 }
 
 @Composable
-private fun DeviceSettingsDialog(
+private fun DeviceSettingsPage(
     state: BmsUiState,
-    onDismiss: () -> Unit,
     onSubmitPassword: (String) -> Boolean,
     onShowAppVersion: () -> Unit,
     onShowDataManagement: () -> Unit,
@@ -240,14 +238,14 @@ private fun DeviceSettingsDialog(
     onTestCriticalTemperatureAlert: () -> Unit
 ) {
     var password by rememberSaveable { androidx.compose.runtime.mutableStateOf("") }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("设备信息") },
-        text = {
-            Column(
-                modifier = Modifier.verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+                Text("设备设置", fontWeight = FontWeight.Bold, fontSize = 18.sp)
                 DialogInfoRow("BMS 型号", state.modelName ?: "未识别")
                 DialogInfoRow("芯片方案", state.chipType ?: "未识别")
                 DialogInfoRow("软件版本", state.basicInfo?.softwareVersion ?: "未读取")
@@ -268,19 +266,13 @@ private fun DeviceSettingsDialog(
                     )
                 }
                 OutlinedButton(
-                    onClick = {
-                        onDismiss()
-                        onShowAppVersion()
-                    },
+                    onClick = onShowAppVersion,
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text("查看 App 版本")
                 }
                 OutlinedButton(
-                    onClick = {
-                        onDismiss()
-                        onShowDataManagement()
-                    },
+                    onClick = onShowDataManagement,
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text("数据备份、恢复与导出")
@@ -342,10 +334,7 @@ private fun DeviceSettingsDialog(
                         modifier = Modifier.fillMaxWidth()
                     ) { Text("进行只读认证") }
                 }
-            }
-        },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("关闭") } }
-    )
+    }
 }
 
 @Composable
@@ -380,6 +369,7 @@ private fun PreviewDashboard(initialTab: Int) {
             Dashboard(
                 state = demoBmsState(),
                 onShowDevices = {},
+                onDisconnect = {},
                 onSubmitPassword = { false },
                 onRequestLocationPermission = {},
                 onRequestExit = {},

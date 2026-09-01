@@ -311,6 +311,7 @@ data class BmsUiState(
     val batteryTrend: BatteryTrendState = BatteryTrendState(),
     val dataManagement: DataManagementState = DataManagementState(),
     val temperatureSafetyAlert: TemperatureSafetyAlert? = null,
+    val temperatureAlertUsesExternalSurface: Boolean = false,
     val fullScreenTemperatureAlertGranted: Boolean = false,
     val overlayTemperatureAlertGranted: Boolean = false
 ) {

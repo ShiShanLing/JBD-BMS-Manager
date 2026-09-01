@@ -4,7 +4,10 @@ import android.Manifest
 import android.app.PictureInPictureParams
 import android.app.NotificationManager
 import android.bluetooth.BluetoothAdapter
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.net.Uri
@@ -27,6 +30,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import com.bms.jbdmanager.model.ConnectionPhase
+import com.bms.jbdmanager.safety.TemperatureAlertNotifier
 import com.bms.jbdmanager.ui.BmsApp
 import com.bms.jbdmanager.ui.theme.JbdBmsTheme
 import java.io.File
@@ -39,6 +43,14 @@ class MainActivity : ComponentActivity() {
     private var inPictureInPicture by mutableStateOf(false)
     private var minimizeOnPipClose = false
     private var allowActivityDestroy = false
+    private val temperatureAlertAcknowledgedReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action != TemperatureAlertNotifier.ACTION_ALERT_ACKNOWLEDGED) return
+            viewModel.acknowledgeTemperatureSafetyAlert(
+                intent.getLongExtra(TemperatureAlertNotifier.EXTRA_ALERT_ID, -1L)
+            )
+        }
+    }
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -89,6 +101,12 @@ class MainActivity : ComponentActivity() {
         viewModel.setLocationPermissionGranted(hasPreciseLocationPermission())
         refreshTemperatureEmergencyPermissions()
         observePictureInPictureEligibility()
+        ContextCompat.registerReceiver(
+            this,
+            temperatureAlertAcknowledgedReceiver,
+            IntentFilter(TemperatureAlertNotifier.ACTION_ALERT_ACKNOWLEDGED),
+            ContextCompat.RECEIVER_NOT_EXPORTED
+        )
         setContent {
             JbdBmsTheme {
                 BmsApp(
@@ -164,6 +182,11 @@ class MainActivity : ComponentActivity() {
     override fun onStop() {
         viewModel.saveLastSnapshot()
         super.onStop()
+    }
+
+    override fun onDestroy() {
+        runCatching { unregisterReceiver(temperatureAlertAcknowledgedReceiver) }
+        super.onDestroy()
     }
 
     override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean, newConfig: Configuration) {

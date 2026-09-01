@@ -14,6 +14,7 @@ data class TemperatureSafetyAlert(
     val warningThresholdC: Double,
     val criticalThresholdC: Double,
     val riseRateCPerMinute: Double?,
+    val riseWindowSeconds: Int?,
     val triggeredAtMillis: Long
 )
 

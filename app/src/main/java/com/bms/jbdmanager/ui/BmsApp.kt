@@ -159,6 +159,15 @@ fun BmsApp(
                             showDashboard = false
                         }
                     },
+                    onDisconnect = {
+                        if (previewMode) {
+                            previewMode = false
+                            showDashboard = false
+                        } else {
+                            showDashboard = false
+                            viewModel.disconnect()
+                        }
+                    },
                     onSubmitPassword = viewModel::submitBluetoothPassword,
                     onRequestLocationPermission = requestLocationPermission,
                     onRequestExit = { showExitConfirmation = true },
@@ -309,7 +318,9 @@ fun BmsApp(
             }
         )
     }
-    state.temperatureSafetyAlert?.let { alert ->
+    state.temperatureSafetyAlert
+        ?.takeUnless { state.temperatureAlertUsesExternalSurface }
+        ?.let { alert ->
         AlertDialog(
             onDismissRequest = {
                 if (alert.level == TemperatureAlertLevel.Warning) {
@@ -328,14 +339,7 @@ fun BmsApp(
             },
             text = {
                 Text(
-                    buildString {
-                        append(alert.message)
-                        alert.riseRateCPerMinute?.takeIf { it > 0.0 }?.let {
-                            append("\n\n近一分钟升温速度约 ")
-                            append("%.1f".format(it))
-                            append("℃/分钟。")
-                        }
-                    }
+                    alert.message
                 )
             },
             confirmButton = {

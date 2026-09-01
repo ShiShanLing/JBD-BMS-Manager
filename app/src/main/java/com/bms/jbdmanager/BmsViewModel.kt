@@ -243,7 +243,8 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
                 reconnectAttempt = 0,
                 reconnectInSeconds = null,
                 gpsSpeed = GpsSpeedState(),
-                temperatureSafetyAlert = null
+                temperatureSafetyAlert = null,
+                temperatureAlertUsesExternalSurface = false
             )
         }
         bleManager.disconnect()
@@ -427,8 +428,28 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
     }
 
     fun dismissTemperatureSafetyAlert() {
-        temperatureAlertNotifier.cancel()
-        _uiState.update { it.copy(temperatureSafetyAlert = null) }
+        _uiState.value.temperatureSafetyAlert?.let {
+            temperatureAlertNotifier.acknowledge(it.id)
+        }
+        _uiState.update {
+            it.copy(
+                temperatureSafetyAlert = null,
+                temperatureAlertUsesExternalSurface = false
+            )
+        }
+    }
+
+    fun acknowledgeTemperatureSafetyAlert(alertId: Long) {
+        _uiState.update { state ->
+            if (alertId < 0 || state.temperatureSafetyAlert?.id == alertId) {
+                state.copy(
+                    temperatureSafetyAlert = null,
+                    temperatureAlertUsesExternalSurface = false
+                )
+            } else {
+                state
+            }
+        }
     }
 
     fun testCriticalTemperatureAlert() {
@@ -438,15 +459,22 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
             id = now,
             level = TemperatureAlertLevel.Critical,
             title = "电池高温危险（测试）",
-            message = "这是调试测试警报。真实危险时请立即停止骑行或充电，远离可燃物。",
+            message = "温度正在快速上升，最高温度 62.5℃。近10秒升温速度约 13.0℃/分钟。" +
+                "这是调试测试警报。真实危险时请立即停止骑行或充电，远离可燃物。",
             maximumTemperatureC = 62.5,
             warningThresholdC = 55.0,
             criticalThresholdC = 60.0,
             riseRateCPerMinute = 13.0,
+            riseWindowSeconds = 10,
             triggeredAtMillis = now
         )
-        _uiState.update { it.copy(temperatureSafetyAlert = alert) }
-        temperatureAlertNotifier.show(alert)
+        val externalSurface = temperatureAlertNotifier.show(alert)
+        _uiState.update {
+            it.copy(
+                temperatureSafetyAlert = alert,
+                temperatureAlertUsesExternalSurface = externalSurface
+            )
+        }
     }
 
     fun saveLastSnapshot() {
@@ -1317,12 +1345,22 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
             protectionParams = _uiState.value.protectionParams
         )
         result.alert?.let { alert ->
-            _uiState.update { it.copy(temperatureSafetyAlert = alert) }
-            temperatureAlertNotifier.show(alert)
+            val externalSurface = temperatureAlertNotifier.show(alert)
+            _uiState.update {
+                it.copy(
+                    temperatureSafetyAlert = alert,
+                    temperatureAlertUsesExternalSurface = externalSurface
+                )
+            }
         }
         if (result.recovered) {
-            temperatureAlertNotifier.cancel()
-            _uiState.update { it.copy(temperatureSafetyAlert = null) }
+            temperatureAlertNotifier.dismissEmergencySurface()
+            _uiState.update {
+                it.copy(
+                    temperatureSafetyAlert = null,
+                    temperatureAlertUsesExternalSurface = false
+                )
+            }
         }
     }
 

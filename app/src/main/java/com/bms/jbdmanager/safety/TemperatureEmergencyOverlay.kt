@@ -41,7 +41,7 @@ internal object TemperatureEmergencyOverlay {
                 setTypeface(typeface, Typeface.BOLD)
             })
             addView(TextView(appContext).apply {
-                text = "最高温度 %.1f℃".format(alert.maximumTemperatureC)
+                text = "当前温度 %.1f℃，非常危险".format(alert.maximumTemperatureC)
                 textSize = 24f
                 gravity = Gravity.CENTER
                 setTextColor(Color.rgb(255, 222, 120))
@@ -62,7 +62,7 @@ internal object TemperatureEmergencyOverlay {
                 text = "我已停车并知晓"
                 textSize = 17f
                 isAllCaps = false
-                setOnClickListener { TemperatureAlertNotifier(appContext).cancel() }
+                setOnClickListener { TemperatureAlertNotifier(appContext).acknowledge(alert.id) }
             }, LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 (56 * density).toInt()

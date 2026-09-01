@@ -34,6 +34,8 @@ import com.bms.jbdmanager.safety.TemperatureEmergencyOverlay
 import com.bms.jbdmanager.ui.theme.JbdBmsTheme
 
 class TemperatureEmergencyActivity : ComponentActivity() {
+    private var alertId: Long = -1L
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setShowWhenLocked(true)
@@ -49,6 +51,7 @@ class TemperatureEmergencyActivity : ComponentActivity() {
         val title = intent.getStringExtra(EXTRA_TITLE) ?: "电池高温危险"
         val message = intent.getStringExtra(EXTRA_MESSAGE) ?: "检测到电池危险高温，请立即停止使用。"
         val temperature = intent.getDoubleExtra(EXTRA_TEMPERATURE, Double.NaN)
+        alertId = intent.getLongExtra(TemperatureAlertNotifier.EXTRA_ALERT_ID, -1L)
         setContent {
             JbdBmsTheme {
                 EmergencyContent(title, message, temperature, onAcknowledge = ::acknowledge)
@@ -83,7 +86,7 @@ class TemperatureEmergencyActivity : ComponentActivity() {
             if (!temperature.isNaN()) {
                 Spacer(Modifier.height(14.dp))
                 Text(
-                    "最高温度 %.1f℃".format(temperature),
+                    "当前温度 %.1f℃，非常危险".format(temperature),
                     fontSize = 25.sp,
                     fontWeight = FontWeight.Bold,
                     color = ComposeColor(0xFFFFDE78)
@@ -112,8 +115,8 @@ class TemperatureEmergencyActivity : ComponentActivity() {
     }
 
     private fun acknowledge() {
-        TemperatureAlertNotifier(this).cancel()
-        finishAndRemoveTask()
+        TemperatureAlertNotifier(this).acknowledge(alertId)
+        finish()
     }
 
     companion object {
@@ -121,11 +124,22 @@ class TemperatureEmergencyActivity : ComponentActivity() {
         private const val EXTRA_MESSAGE = "temperature_alert_message"
         private const val EXTRA_TEMPERATURE = "temperature_alert_value"
 
-        fun intent(context: Context, title: String, message: String, temperature: Double): Intent =
+        fun intent(
+            context: Context,
+            title: String,
+            message: String,
+            temperature: Double,
+            alertId: Long
+        ): Intent =
             Intent(context, TemperatureEmergencyActivity::class.java)
                 .putExtra(EXTRA_TITLE, title)
                 .putExtra(EXTRA_MESSAGE, message)
                 .putExtra(EXTRA_TEMPERATURE, temperature)
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                .putExtra(TemperatureAlertNotifier.EXTRA_ALERT_ID, alertId)
+                .addFlags(
+                    Intent.FLAG_ACTIVITY_NEW_TASK or
+                        Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                        Intent.FLAG_ACTIVITY_SINGLE_TOP
+                )
     }
 }

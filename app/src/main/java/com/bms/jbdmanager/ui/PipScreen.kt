@@ -30,12 +30,15 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import android.os.SystemClock
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.TextUnit
@@ -48,7 +51,15 @@ import kotlin.math.roundToInt
 
 @Composable
 internal fun PipScreen(state: BmsUiState) {
-    val charging = state.isCharging
+    val chargingModeResolver = remember { PipChargingModeResolver() }
+    val info = state.basicInfo
+    val charging = remember(info?.updatedAtMillis, info?.currentA, state.trip.currentSpeedKmh) {
+        chargingModeResolver.update(
+            currentA = info?.currentA,
+            speedKmh = state.trip.currentSpeedKmh,
+            nowMillis = SystemClock.elapsedRealtime()
+        )
+    }
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -69,7 +80,7 @@ internal fun PipScreen(state: BmsUiState) {
 private fun PipRidingLayout(state: BmsUiState) {
     val info = state.basicInfo
     val discharging = info != null && info.currentA < -0.05
-    val regen = info != null && info.currentA > 0.05 && !state.isCharging
+    val regen = info != null && info.currentA > 0.05
     val accent = when {
         discharging -> MaterialTheme.colorScheme.primary
         regen -> MaterialTheme.colorScheme.secondary
@@ -114,7 +125,12 @@ private fun PipRidingLayout(state: BmsUiState) {
                     )
                 }
             }
-            PipStatusChip(status = status, accent = accent, compact = true)
+            PipStatusChip(
+                status = status,
+                accent = accent,
+                compact = true,
+                modifier = Modifier.width(52.dp)
+            )
         }
         PipRidingSocBar(
             progress = socProgress,
@@ -152,22 +168,99 @@ private fun PipRidingLayout(state: BmsUiState) {
 }
 
 @Composable
-private fun PipStatusChip(status: String, accent: Color, compact: Boolean = false) {
+private fun PipStatusChip(
+    status: String,
+    accent: Color,
+    compact: Boolean = false,
+    modifier: Modifier = Modifier
+) {
     Surface(
+        modifier = modifier,
         color = accent.copy(alpha = 0.18f),
         shape = RoundedCornerShape(999.dp)
     ) {
         Text(
             status,
-            modifier = Modifier.padding(
-                horizontal = if (compact) 6.dp else 8.dp,
-                vertical = if (compact) 2.dp else 3.dp
-            ),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(
+                    horizontal = if (compact) 6.dp else 8.dp,
+                    vertical = if (compact) 2.dp else 3.dp
+                ),
             color = accent,
             fontWeight = FontWeight.Bold,
             fontSize = if (compact) 8.sp else 10.sp,
-            maxLines = 1
+            textAlign = TextAlign.Center,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
         )
+    }
+}
+
+internal class PipChargingModeResolver {
+    private var lastMovingAtMillis: Long? = null
+    private var chargingCandidateSinceMillis: Long? = null
+    private var chargingExitSinceMillis: Long? = null
+    private var charging = false
+
+    fun update(currentA: Double?, speedKmh: Double, nowMillis: Long): Boolean {
+        if (speedKmh >= MOVING_SPEED_KMH) {
+            lastMovingAtMillis = nowMillis
+            chargingCandidateSinceMillis = null
+            chargingExitSinceMillis = null
+            charging = false
+            return false
+        }
+
+        val current = currentA ?: run {
+            resetCandidates()
+            charging = false
+            return false
+        }
+        if (charging) {
+            if (current <= CHARGING_EXIT_CURRENT_A) {
+                val exitSince = chargingExitSinceMillis ?: nowMillis.also {
+                    chargingExitSinceMillis = it
+                }
+                if (nowMillis - exitSince >= CHARGING_EXIT_CONFIRM_MS) {
+                    charging = false
+                    resetCandidates()
+                }
+            } else {
+                chargingExitSinceMillis = null
+            }
+            return charging
+        }
+
+        if (current <= CHARGING_ENTRY_CURRENT_A) {
+            chargingCandidateSinceMillis = null
+            return false
+        }
+        val candidateSince = chargingCandidateSinceMillis ?: nowMillis.also {
+            chargingCandidateSinceMillis = it
+        }
+        val recentlyMoving = lastMovingAtMillis?.let {
+            nowMillis - it < RECENT_MOVEMENT_GUARD_MS
+        } == true
+        if (!recentlyMoving && nowMillis - candidateSince >= CHARGING_ENTRY_CONFIRM_MS) {
+            charging = true
+            chargingExitSinceMillis = null
+        }
+        return charging
+    }
+
+    private fun resetCandidates() {
+        chargingCandidateSinceMillis = null
+        chargingExitSinceMillis = null
+    }
+
+    private companion object {
+        const val MOVING_SPEED_KMH = 1.0
+        const val CHARGING_ENTRY_CURRENT_A = 7.0
+        const val CHARGING_EXIT_CURRENT_A = 1.0
+        const val CHARGING_ENTRY_CONFIRM_MS = 10_000L
+        const val RECENT_MOVEMENT_GUARD_MS = 15_000L
+        const val CHARGING_EXIT_CONFIRM_MS = 3_000L
     }
 }
 

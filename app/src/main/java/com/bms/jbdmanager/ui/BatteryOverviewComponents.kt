@@ -25,6 +25,8 @@ import com.bms.jbdmanager.model.CellSummary
 import com.bms.jbdmanager.model.GpsSpeedState
 import com.bms.jbdmanager.model.TripState
 import java.util.Locale
+import kotlin.math.abs
+import kotlin.math.roundToInt
 
 
 internal data class Metric(
@@ -92,6 +94,11 @@ internal fun SocHero(
     } else {
         format(info.currentA, "A").replace(" ", "")
     }
+    val powerText = if (abs(info.currentA) <= 0.05) {
+        "0W"
+    } else {
+        "${abs(info.totalVoltageV * info.currentA).roundToInt()}W"
+    }
     val batteryStateColor = when {
         charging -> MaterialTheme.colorScheme.primary
         info.currentA < -0.05 -> MaterialTheme.colorScheme.secondary
@@ -102,7 +109,13 @@ internal fun SocHero(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.72f)),
         shape = RoundedCornerShape(16.dp)
     ) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .height(IntrinsicSize.Min)
+                .padding(horizontal = 14.dp, vertical = 9.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
             Box(Modifier.size(76.dp), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator(
                     progress = { info.stateOfChargePercent / 100f },
@@ -117,7 +130,13 @@ internal fun SocHero(
             }
             Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f)) {
-                Text("电池状态", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
+                Text(
+                    "电池状态",
+                    modifier = Modifier.height(16.dp),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 12.sp,
+                    lineHeight = 14.sp
+                )
                 if (onClick != null) {
                     Text(
                         "点击切换演示场景",
@@ -134,37 +153,65 @@ internal fun SocHero(
                         fontSize = 19.sp,
                         maxLines = 1
                     )
-                    Text(
-                        currentText,
-                        color = batteryStateColor,
-                        fontWeight = FontWeight.SemiBold,
-                        fontSize = 13.sp,
-                        lineHeight = 14.sp,
-                        maxLines = 1
-                    )
+                    Spacer(Modifier.height(2.dp))
+                    Row(Modifier.fillMaxWidth()) {
+                        Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
+                            Text(
+                                currentText,
+                                color = batteryStateColor,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 16.sp,
+                                lineHeight = 18.sp,
+                                maxLines = 1
+                            )
+                        }
+                        Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
+                            Text(
+                                powerText,
+                                color = batteryStateColor,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 16.sp,
+                                lineHeight = 18.sp,
+                                maxLines = 1
+                            )
+                        }
+                    }
                 }
                 Spacer(Modifier.height(2.dp))
                 info.productionDate?.let { Text("生产日期 $it", fontSize = 11.sp) }
             }
-            RuntimeStatusColumn(info)
+            RuntimeStatusColumn(info, Modifier.fillMaxHeight())
         }
     }
 }
 
 @Composable
-private fun RuntimeStatusColumn(info: BmsBasicInfo) {
+private fun RuntimeStatusColumn(info: BmsBasicInfo, modifier: Modifier = Modifier) {
     val protection = protectionText(info.protectionMask)
     val balancing = info.balancingMask != 0L
     Column(
-        modifier = Modifier.width(82.dp),
-        horizontalAlignment = Alignment.Start,
-        verticalArrangement = Arrangement.spacedBy(2.dp)
+        modifier = modifier.width(82.dp),
+        horizontalAlignment = Alignment.Start
     ) {
-        Text("运行状态", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp, lineHeight = 13.sp)
-        CompactStatus("充电 MOS", info.chargeMosEnabled)
-        CompactStatus("放电 MOS", info.dischargeMosEnabled)
-        CompactStatus("电池均衡", balancing)
-        CompactStatus("电池保护", protection.isNotEmpty(), dangerWhenActive = true)
+        Text(
+            "运行状态",
+            modifier = Modifier.height(16.dp),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 12.sp,
+            lineHeight = 14.sp
+        )
+        Spacer(Modifier.height(4.dp))
+        Column(Modifier.weight(1f)) {
+            CompactStatus("充电 MOS", info.chargeMosEnabled, modifier = Modifier.weight(1f))
+            CompactStatus("放电 MOS", info.dischargeMosEnabled, modifier = Modifier.weight(1f))
+            CompactStatus("电池均衡", balancing, modifier = Modifier.weight(1f))
+            CompactStatus(
+                "电池保护",
+                protection.isNotEmpty(),
+                dangerWhenActive = true,
+                modifier = Modifier.weight(1f)
+            )
+        }
     }
 }
 
@@ -172,11 +219,12 @@ private fun RuntimeStatusColumn(info: BmsBasicInfo) {
 private fun CompactStatus(
     label: String,
     active: Boolean,
-    dangerWhenActive: Boolean = false
+    dangerWhenActive: Boolean = false,
+    modifier: Modifier = Modifier
 ) {
     val activeColor = if (dangerWhenActive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
     val inactiveColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f)
-    Row(verticalAlignment = Alignment.CenterVertically) {
+    Row(modifier = modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Box(
             Modifier
                 .size(7.dp)

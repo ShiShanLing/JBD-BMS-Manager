@@ -11,6 +11,21 @@ const val StationarySpeedKmh = 1.0
 fun isStationaryCharging(currentA: Double, speedKmh: Double): Boolean =
     currentA > SignificantChargeCurrentA && speedKmh < StationarySpeedKmh
 
+/** BMS 的 SOC 在满充时可能显示 99% 或 100%，剩余容量也可能是 50.0Ah / 49.9Ah。 */
+const val FullChargeSocPercent = 99
+const val FullChargeCapacityRatio = 0.99
+const val FullChargeCapacitySlackAh = 0.15
+
+fun BmsBasicInfo.isEffectivelyFullyCharged(): Boolean {
+    if (stateOfChargePercent >= FullChargeSocPercent) return true
+    val fullAh = fullChargeCapacityAh?.takeIf { it > 0.0 }
+        ?: nominalCapacityAh.takeIf { it > 0.0 }
+        ?: return false
+    if (remainingCapacityAh <= 0.0) return false
+    return remainingCapacityAh + FullChargeCapacitySlackAh >= fullAh ||
+        remainingCapacityAh >= fullAh * FullChargeCapacityRatio
+}
+
 data class BmsBasicInfo(
     val totalVoltageV: Double,
     val currentA: Double,

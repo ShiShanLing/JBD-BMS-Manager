@@ -43,9 +43,12 @@ internal fun LastSnapshotScreen(
 ) {
     var tab by remember { mutableIntStateOf(0) }
     var historySubpageOpen by remember { mutableStateOf(false) }
-    BackHandler(onBack = onBack)
+    var showFullChargeStats by remember { mutableStateOf(false) }
+    BackHandler(onBack = {
+        if (showFullChargeStats) showFullChargeStats = false else onBack()
+    })
     Column(Modifier.fillMaxSize()) {
-        if (!historySubpageOpen) {
+        if (!historySubpageOpen && !showFullChargeStats) {
             Row(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 5.dp),
                 verticalAlignment = Alignment.CenterVertically
@@ -81,10 +84,17 @@ internal fun LastSnapshotScreen(
             batteryTrend = batteryTrend
         )
         Box(Modifier.weight(1f).fillMaxWidth()) {
-            when (tab) {
+            if (showFullChargeStats) {
+                FullChargeStatsDestination(
+                    state = snapshotState,
+                    onLoadBatteryTrend = onLoadBatteryTrend,
+                    onBack = { showFullChargeStats = false }
+                )
+            } else when (tab) {
                 0 -> Overview(
                     state = snapshotState,
-                    onRequestLocationPermission = {}
+                    onRequestLocationPermission = {},
+                    onOpenFullChargeStats = { showFullChargeStats = true }
                 )
                 1 -> ProtectionParamsPage(
                     state = snapshotState,
@@ -111,7 +121,7 @@ internal fun LastSnapshotScreen(
                 )
             }
         }
-        if (!historySubpageOpen) {
+        if (!historySubpageOpen && !showFullChargeStats) {
             DashboardBottomNavigation(selected = tab, onSelect = {
                 tab = it
                 if (it != 3) historySubpageOpen = false

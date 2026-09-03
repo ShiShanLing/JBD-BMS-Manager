@@ -11,6 +11,7 @@ import com.bms.jbdmanager.model.BmsBasicInfo
 import com.bms.jbdmanager.model.BmsUiState
 import com.bms.jbdmanager.model.CapacityHealthRecord
 import com.bms.jbdmanager.model.CellSummary
+import com.bms.jbdmanager.model.FullChargeDeltaSample
 import com.bms.jbdmanager.model.FullChargeFingerprint
 import com.bms.jbdmanager.model.ProtectionEvent
 import com.bms.jbdmanager.model.ProtectionEventSeverity
@@ -109,6 +110,11 @@ class BatteryHealthPdfGeneratorTest {
                         maximumTemperatureC = 32.0,
                         cellVoltagesMv = latestCells
                     )
+                ),
+                fullChargeDeltas = listOf(
+                    FullChargeDeltaSample(now - 180L * DAY, 28, 55.9, 0.2, 100, 30.0),
+                    FullChargeDeltaSample(now - 90L * DAY, 24, 55.85, 0.1, 100, 31.0),
+                    FullChargeDeltaSample(now, 18, 55.8, 0.2, 100, 32.0)
                 )
             ),
             protectionEvents = listOf(

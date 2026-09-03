@@ -7,7 +7,9 @@ import android.database.sqlite.SQLiteOpenHelper
 import com.bms.jbdmanager.model.BatteryTrendPoint
 import com.bms.jbdmanager.model.BmsBasicInfo
 import com.bms.jbdmanager.model.CellSummary
+import com.bms.jbdmanager.model.FullChargeDeltaSample
 import com.bms.jbdmanager.model.FullChargeFingerprint
+import com.bms.jbdmanager.model.isEffectivelyFullyCharged
 import java.time.Instant
 import java.time.ZoneId
 import java.io.File
@@ -18,7 +20,8 @@ import java.util.zip.ZipOutputStream
 internal data class TrendBackupStats(
     val sampleCount: Int,
     val dailySummaryCount: Int,
-    val fullChargeFingerprintCount: Int
+    val fullChargeFingerprintCount: Int,
+    val fullChargeDeltaCount: Int = 0
 )
 
 internal class BatteryTrendStore(context: Context) :
@@ -80,10 +83,16 @@ internal class BatteryTrendStore(context: Context) :
             )
             """.trimIndent()
         )
+        createFullChargeDeltaTable(db)
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
         if (oldVersion < 2) createLongTermTables(db)
+        if (oldVersion < 3) {
+            createFullChargeDeltaTable(db)
+            backfillFullChargeDeltas(db)
+        }
+        if (oldVersion < 4) addRemainingCapacityColumn(db)
     }
 
     private fun createLongTermTables(db: SQLiteDatabase) {
@@ -117,6 +126,60 @@ internal class BatteryTrendStore(context: Context) :
                 cell_voltages_mv TEXT NOT NULL,
                 PRIMARY KEY(device_address, day_start_millis)
             )
+            """.trimIndent()
+        )
+    }
+
+    private fun createFullChargeDeltaTable(db: SQLiteDatabase) {
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS $TABLE_FULL_CHARGE_DELTA (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                captured_at_millis INTEGER NOT NULL,
+                device_address TEXT NOT NULL,
+                cell_delta_mv INTEGER NOT NULL,
+                total_voltage_v REAL NOT NULL,
+                current_a REAL,
+                soc_percent INTEGER NOT NULL,
+                maximum_temperature_c REAL,
+                remaining_capacity_ah REAL
+            )
+            """.trimIndent()
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS full_charge_delta_device_time ON $TABLE_FULL_CHARGE_DELTA(device_address, captured_at_millis)"
+        )
+    }
+
+    private fun addRemainingCapacityColumn(db: SQLiteDatabase) {
+        val hasColumn = db.rawQuery("PRAGMA table_info($TABLE_FULL_CHARGE_DELTA)", null).use { cursor ->
+            val nameIndex = cursor.getColumnIndex("name")
+            if (nameIndex < 0) return@use false
+            var found = false
+            while (cursor.moveToNext()) {
+                if (cursor.getString(nameIndex) == "remaining_capacity_ah") {
+                    found = true
+                    break
+                }
+            }
+            found
+        }
+        if (!hasColumn) {
+            db.execSQL("ALTER TABLE $TABLE_FULL_CHARGE_DELTA ADD COLUMN remaining_capacity_ah REAL")
+        }
+    }
+
+    private fun backfillFullChargeDeltas(db: SQLiteDatabase) {
+        db.execSQL(
+            """
+            INSERT INTO $TABLE_FULL_CHARGE_DELTA (
+                captured_at_millis, device_address, cell_delta_mv, total_voltage_v,
+                current_a, soc_percent, maximum_temperature_c, remaining_capacity_ah
+            )
+            SELECT captured_at_millis, device_address, cell_delta_mv, total_voltage_v,
+                   NULL, soc_percent, maximum_temperature_c, NULL
+            FROM $TABLE_FULL_CHARGE
+            WHERE soc_percent >= 99
             """.trimIndent()
         )
     }
@@ -243,11 +306,81 @@ internal class BatteryTrendStore(context: Context) :
         }
     }
 
+    /**
+     * 连接时若接近满充（SOC≥99%，或剩余容量接近满充Ah），记录当时的整组压差。
+     * 同一设备两次记录至少间隔两小时，避免自动重连刷屏。
+     */
+    @Synchronized
+    fun recordFullChargeDelta(
+        deviceAddress: String,
+        info: BmsBasicInfo,
+        cells: CellSummary,
+        nowMillis: Long = System.currentTimeMillis()
+    ): Boolean {
+        if (!info.isEffectivelyFullyCharged()) return false
+        val delta = cells.deltaMv ?: return false
+        val lastCapturedAt = readableDatabase.rawQuery(
+            """
+            SELECT captured_at_millis FROM $TABLE_FULL_CHARGE_DELTA
+            WHERE device_address = ?
+            ORDER BY captured_at_millis DESC LIMIT 1
+            """.trimIndent(),
+            arrayOf(deviceAddress)
+        ).use { cursor ->
+            if (cursor.moveToFirst()) cursor.getLong(0) else null
+        }
+        if (lastCapturedAt != null && nowMillis - lastCapturedAt < FULL_CHARGE_DELTA_MIN_INTERVAL_MILLIS) {
+            return false
+        }
+        val values = ContentValues().apply {
+            put("captured_at_millis", nowMillis)
+            put("device_address", deviceAddress)
+            put("cell_delta_mv", delta)
+            put("total_voltage_v", info.totalVoltageV)
+            putNullable("current_a", info.currentA)
+            put("soc_percent", info.stateOfChargePercent)
+            putNullable("maximum_temperature_c", info.temperaturesC.maxOrNull())
+            putNullable("remaining_capacity_ah", info.remainingCapacityAh)
+        }
+        return writableDatabase.insert(TABLE_FULL_CHARGE_DELTA, null, values) != -1L
+    }
+
+    @Synchronized
+    fun loadFullChargeDeltas(deviceAddress: String): List<FullChargeDeltaSample> {
+        return readableDatabase.rawQuery(
+            """
+            SELECT captured_at_millis, cell_delta_mv, total_voltage_v, current_a,
+                   soc_percent, maximum_temperature_c, remaining_capacity_ah
+            FROM $TABLE_FULL_CHARGE_DELTA
+            WHERE device_address = ?
+            ORDER BY captured_at_millis ASC
+            """.trimIndent(),
+            arrayOf(deviceAddress)
+        ).use { cursor ->
+            buildList {
+                while (cursor.moveToNext()) {
+                    add(
+                        FullChargeDeltaSample(
+                            capturedAtMillis = cursor.getLong(0),
+                            cellDeltaMv = cursor.getInt(1),
+                            totalVoltageV = cursor.getDouble(2),
+                            currentA = cursor.nullableDouble(3),
+                            socPercent = cursor.getInt(4),
+                            maximumTemperatureC = cursor.nullableDouble(5),
+                            remainingCapacityAh = cursor.nullableDouble(6)
+                        )
+                    )
+                }
+            }
+        }
+    }
+
     @Synchronized
     fun backupStats(): TrendBackupStats = TrendBackupStats(
         sampleCount = countRows(TABLE_SAMPLES),
         dailySummaryCount = countRows(TABLE_DAILY),
-        fullChargeFingerprintCount = countRows(TABLE_FULL_CHARGE)
+        fullChargeFingerprintCount = countRows(TABLE_FULL_CHARGE),
+        fullChargeDeltaCount = countRows(TABLE_FULL_CHARGE_DELTA)
     )
 
     @Synchronized
@@ -284,10 +417,18 @@ internal class BatteryTrendStore(context: Context) :
             require(tables.containsAll(setOf(TABLE_SAMPLES, TABLE_DAILY, TABLE_FULL_CHARGE))) {
                 "趋势数据库格式不完整"
             }
+            if (schemaVersion >= 3) {
+                require(tables.contains(TABLE_FULL_CHARGE_DELTA)) { "趋势数据库格式不完整" }
+            }
             TrendBackupStats(
                 sampleCount = db.countRows(TABLE_SAMPLES),
                 dailySummaryCount = db.countRows(TABLE_DAILY),
-                fullChargeFingerprintCount = db.countRows(TABLE_FULL_CHARGE)
+                fullChargeFingerprintCount = db.countRows(TABLE_FULL_CHARGE),
+                fullChargeDeltaCount = if (tables.contains(TABLE_FULL_CHARGE_DELTA)) {
+                    db.countRows(TABLE_FULL_CHARGE_DELTA)
+                } else {
+                    0
+                }
             )
         }
     }
@@ -387,6 +528,27 @@ internal class BatteryTrendStore(context: Context) :
                     cursor.getString(5).split(',').forEachIndexed { index, voltage ->
                         append((prefix + listOf(index + 1, voltage)).joinToString(",", postfix = "\n"))
                     }
+                }
+            }
+        }
+        writeCsvEntry(zip, "满充压差.csv") { append ->
+            append("时间,时间戳,设备地址,SOC%,压差mV,剩余容量Ah,总压V,电流A,最高温度C\n")
+            readableDatabase.rawQuery(
+                """
+                SELECT captured_at_millis, device_address, soc_percent, cell_delta_mv,
+                       remaining_capacity_ah, total_voltage_v, current_a, maximum_temperature_c
+                FROM $TABLE_FULL_CHARGE_DELTA ORDER BY captured_at_millis
+                """.trimIndent(),
+                null
+            ).use { cursor ->
+                while (cursor.moveToNext()) {
+                    append(
+                        listOf(
+                            csvTime(cursor.getLong(0)), cursor.getLong(0), cursor.getString(1),
+                            cursor.getInt(2), cursor.getInt(3), cursor.csvNullable(4),
+                            cursor.getDouble(5), cursor.csvNullable(6), cursor.csvNullable(7)
+                        ).joinToString(",", postfix = "\n")
+                    )
                 }
             }
         }
@@ -495,14 +657,16 @@ internal class BatteryTrendStore(context: Context) :
 
     companion object {
         private const val DATABASE_NAME = "battery_trends.db"
-        private const val DATABASE_VERSION = 2
+        private const val DATABASE_VERSION = 4
         private const val TABLE_SAMPLES = "trend_samples"
         private const val TABLE_DAILY = "trend_daily"
         private const val TABLE_FULL_CHARGE = "full_charge_fingerprints"
+        private const val TABLE_FULL_CHARGE_DELTA = "full_charge_deltas"
         private const val RAW_INTERVAL_MILLIS = 10_000L
         private const val ARCHIVE_INTERVAL_MILLIS = 5 * 60 * 1_000L
         private const val DAY_MILLIS = 24 * 60 * 60 * 1_000L
         private const val RAW_RETENTION_MILLIS = 7 * 24 * 60 * 60 * 1_000L
         private const val TOTAL_RETENTION_MILLIS = 30 * 24 * 60 * 60 * 1_000L
+        private const val FULL_CHARGE_DELTA_MIN_INTERVAL_MILLIS = 2 * 60 * 60 * 1_000L
     }
 }

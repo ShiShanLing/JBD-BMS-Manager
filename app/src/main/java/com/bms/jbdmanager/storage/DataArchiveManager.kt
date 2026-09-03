@@ -58,6 +58,7 @@ internal class DataArchiveManager(
                 .put("trendSampleCount", stats.sampleCount)
                 .put("dailySummaryCount", stats.dailySummaryCount)
                 .put("fullChargeFingerprintCount", stats.fullChargeFingerprintCount)
+                .put("fullChargeDeltaCount", stats.fullChargeDeltaCount)
                 .put("preferenceGroupCount", preferences.getJSONArray("groups").length())
             ZipOutputStream(output.buffered()).use { zip ->
                 zip.writeTextEntry(MANIFEST_ENTRY, manifest.toString(2))
@@ -104,6 +105,7 @@ internal class DataArchiveManager(
                 trendSampleCount = stats.sampleCount,
                 dailySummaryCount = stats.dailySummaryCount,
                 fullChargeFingerprintCount = stats.fullChargeFingerprintCount,
+                fullChargeDeltaCount = stats.fullChargeDeltaCount,
                 preferenceGroupCount = preferenceSnapshot.size
             )
             return PreparedDataRestore(directory, preview)

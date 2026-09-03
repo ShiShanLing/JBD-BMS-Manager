@@ -86,6 +86,7 @@ class DataArchiveManagerTest {
         assertTrue(names.contains("趋势明细.csv"))
         assertTrue(names.contains("每日趋势摘要.csv"))
         assertTrue(names.contains("满充逐串电压.csv"))
+        assertTrue(names.contains("满充压差.csv"))
         assertTrue(names.contains("容量测试.csv"))
         assertTrue(names.contains("保护告警.csv"))
         assertTrue(names.contains("骑行记录.csv"))

@@ -66,6 +66,7 @@ internal fun CapacityHealthPage(
     val diagnosis = remember(
         state.capacityHealthRecords,
         state.batteryTrend.fullChargeFingerprints,
+        state.batteryTrend.fullChargeDeltas,
         state.protectionEvents,
         state.connectedAddress,
         state.lastSnapshot?.deviceAddress
@@ -74,7 +75,8 @@ internal fun CapacityHealthPage(
             capacityRecords = state.capacityHealthRecords,
             fingerprints = state.batteryTrend.fullChargeFingerprints,
             protectionEvents = state.protectionEvents,
-            deviceAddress = state.connectedAddress ?: state.lastSnapshot?.deviceAddress
+            deviceAddress = state.connectedAddress ?: state.lastSnapshot?.deviceAddress,
+            fullChargeDeltas = state.batteryTrend.fullChargeDeltas
         )
     }
 

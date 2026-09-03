@@ -37,7 +37,8 @@ import java.util.Locale
 internal fun Overview(
     state: BmsUiState,
     onRequestLocationPermission: () -> Unit,
-    onCyclePreviewScenario: (() -> Unit)? = null
+    onCyclePreviewScenario: (() -> Unit)? = null,
+    onOpenFullChargeStats: () -> Unit = {}
 ) {
     val info = state.basicInfo
     if (info == null) {
@@ -69,8 +70,9 @@ internal fun Overview(
                 Metric(
                     "压差/平均电压",
                     voltageSummary,
-                    "单体压差/平均值",
-                    deltaColor
+                    "点击查看满充统计",
+                    deltaColor,
+                    onClick = onOpenFullChargeStats
                 )
             )
         }

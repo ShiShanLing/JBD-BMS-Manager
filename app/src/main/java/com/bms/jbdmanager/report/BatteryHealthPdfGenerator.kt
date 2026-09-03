@@ -10,11 +10,14 @@ import android.graphics.pdf.PdfDocument
 import com.bms.jbdmanager.model.BmsUiState
 import com.bms.jbdmanager.model.CapacityHealthRecord
 import com.bms.jbdmanager.model.CellHealthDiagnosis
+import com.bms.jbdmanager.model.FullChargeDeltaDirection
+import com.bms.jbdmanager.model.FullChargeDeltaTrend
 import com.bms.jbdmanager.model.HealthDiagnosisConfidence
 import com.bms.jbdmanager.model.HealthDiagnosisFinding
 import com.bms.jbdmanager.model.HealthDiagnosisLevel
 import com.bms.jbdmanager.model.ProtectionEvent
 import com.bms.jbdmanager.model.diagnoseBatteryHealth
+import com.bms.jbdmanager.model.evaluateFullChargeDeltaTrend
 import java.io.OutputStream
 import java.time.Instant
 import java.time.ZoneId
@@ -30,7 +33,8 @@ internal class BatteryHealthPdfGenerator {
             capacityRecords = state.capacityHealthRecords,
             fingerprints = state.batteryTrend.fullChargeFingerprints,
             protectionEvents = state.protectionEvents,
-            deviceAddress = deviceAddress
+            deviceAddress = deviceAddress,
+            fullChargeDeltas = state.batteryTrend.fullChargeDeltas
         )
         val report = PdfReportDocument(generatedAtMillis)
         try {
@@ -86,6 +90,8 @@ internal class BatteryHealthPdfGenerator {
             }
 
             report.newPageSection("满充单体长期对比")
+            val deltaTrend = evaluateFullChargeDeltaTrend(state.batteryTrend.fullChargeDeltas)
+            report.fullChargeDeltaChart(deltaTrend)
             val baseline = diagnosis.baselineFingerprint
             val latest = diagnosis.latestFingerprint
             report.note(
@@ -112,6 +118,7 @@ internal class BatteryHealthPdfGenerator {
 
             report.section("判断条件与使用说明")
             report.bullet("容量健康：实测容量/BMS总容量；90%以上为正常，80%-89.9%持续观察，75%-79.9%警告，低于75%严重。")
+            report.bullet("满充压差：连接且接近满充（SOC≥99%，或剩余容量接近满充Ah）时记录整组最高与最低单体之差；压差变小视为一致性向好。")
             report.bullet("单体一致性：仅比较串数相同、SOC差不超过2%、最高温差不超过7℃且至少间隔7天的满充记录。")
             report.bullet("单体绝对电压会受充电器截止、电池温度、充电电流和静置时间影响，应结合相对漂移及多次记录判断。")
             report.bullet("本报告由App本地只读数据自动生成，不是电池厂商或法定检测机构出具的容量鉴定证明。")
@@ -236,6 +243,46 @@ private class PdfReportDocument(private val generatedAtMillis: Long) {
             drawText(formatShortDate(record.recordedAtMillis), x - 10f, bottom + 16f, 7f, COLOR_MUTED)
         }
         canvas.drawPath(path, stroke(COLOR_PRIMARY, 2f))
+        y += 150f
+    }
+
+    fun fullChargeDeltaChart(trend: FullChargeDeltaTrend) {
+        val values = trend.samples
+        ensureSpace(if (values.size < 2) 92f else 205f)
+        section("满充压差趋势")
+        note(trend.summary)
+        if (values.size < 2) return
+        val left = MARGIN + 34f
+        val top = y + 8f
+        val right = PAGE_WIDTH - MARGIN - 8f
+        val bottom = y + 130f
+        val rawMin = values.minOf { it.cellDeltaMv }.toDouble()
+        val rawMax = values.maxOf { it.cellDeltaMv }.toDouble()
+        val padding = max(2.0, (rawMax - rawMin) * 0.12)
+        val minimum = rawMin - padding
+        val maximum = rawMax + padding
+        val color = when (trend.direction) {
+            FullChargeDeltaDirection.Improving -> COLOR_PRIMARY
+            FullChargeDeltaDirection.Worsening -> COLOR_WARNING
+            else -> COLOR_MUTED
+        }
+        repeat(4) { index ->
+            val lineY = top + (bottom - top) * index / 3f
+            canvas.drawLine(left, lineY, right, lineY, stroke(COLOR_LINE, 0.7f))
+            val label = maximum - (maximum - minimum) * index / 3.0
+            drawText("${number(label, 0)}", MARGIN, lineY + 3f, 7f, COLOR_MUTED)
+        }
+        val path = Path()
+        values.forEachIndexed { index, sample ->
+            val x = if (values.size == 1) (left + right) / 2f else left + (right - left) * index / (values.size - 1)
+            val pointY = bottom - ((sample.cellDeltaMv - minimum) / (maximum - minimum) * (bottom - top)).toFloat()
+            if (index == 0) path.moveTo(x, pointY) else path.lineTo(x, pointY)
+            canvas.drawCircle(x, pointY, 3.5f, fill(color))
+            if (index == 0 || index == values.lastIndex || values.size <= 6) {
+                drawText(formatShortDate(sample.capturedAtMillis), x - 10f, bottom + 16f, 7f, COLOR_MUTED)
+            }
+        }
+        canvas.drawPath(path, stroke(color, 2f))
         y += 150f
     }
 

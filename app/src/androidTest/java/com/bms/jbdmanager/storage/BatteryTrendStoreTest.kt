@@ -71,9 +71,38 @@ class BatteryTrendStoreTest {
             database.rawQuery(
                 "SELECT COUNT(*) FROM trend_daily WHERE device_address = ?",
                 arrayOf("AA")
-            ).use { cursor -> cursor.moveToFirst(); cursor.getInt(0) }
+            ).use { cursor ->
+                cursor.moveToFirst()
+                cursor.getInt(0)
+            }
         }
         assertEquals(1, dailyCount)
+    }
+
+    @Test
+    fun fullChargeDeltaRecordsNearFullSocOrAhAndDebouncesReconnects() {
+        val store = BatteryTrendStore(context)
+        val now = 1_700_000_000_000L
+        store.recordFullChargeDelta("AA", info(55.6, soc = 90), CellSummary(listOf(3490, 3470)), now)
+        store.recordFullChargeDelta("AA", info(55.8, soc = 99), CellSummary(listOf(3496, 3472)), now)
+        store.recordFullChargeDelta("AA", info(55.9, soc = 100), CellSummary(listOf(3498, 3470)), now + 30 * 60 * 1_000L)
+        store.recordFullChargeDelta(
+            "AA",
+            info(55.7, soc = 98, remainingAh = 49.9),
+            CellSummary(listOf(3494, 3478)),
+            now + 3 * 60 * 60 * 1_000L
+        )
+
+        val loaded = store.loadFullChargeDeltas("AA")
+
+        assertEquals(2, loaded.size)
+        assertEquals(24, loaded.first().cellDeltaMv)
+        assertEquals(99, loaded.first().socPercent)
+        assertEquals(50.0, loaded.first().remainingCapacityAh!!, 0.001)
+        assertEquals(16, loaded.last().cellDeltaMv)
+        assertEquals(98, loaded.last().socPercent)
+        assertEquals(49.9, loaded.last().remainingCapacityAh!!, 0.001)
+        assertTrue(store.loadFullChargeDeltas("BB").isEmpty())
     }
 
     private fun point(time: Long, voltage: Double) = BatteryTrendPoint(
@@ -86,10 +115,10 @@ class BatteryTrendStoreTest {
         minimumCellMv = 3275.0
     )
 
-    private fun info(voltage: Double, soc: Int = 100) = BmsBasicInfo(
+    private fun info(voltage: Double, soc: Int = 100, remainingAh: Double? = null) = BmsBasicInfo(
         totalVoltageV = voltage,
         currentA = 0.2,
-        remainingCapacityAh = 50.0,
+        remainingCapacityAh = remainingAh ?: if (soc >= 99) 50.0 else soc / 100.0 * 50.0,
         nominalCapacityAh = 50.0,
         fullChargeCapacityAh = 50.0,
         stateOfChargePercent = soc,

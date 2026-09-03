@@ -58,17 +58,21 @@ internal fun Dashboard(
     onEnterPictureInPicture: () -> Unit = {},
     isPreview: Boolean = false,
     onCyclePreviewScenario: (() -> Unit)? = null,
-    initialTab: Int = 0
+    initialTab: Int = 0,
+    openFullChargeStats: Boolean = false
 ) {
     var tab by rememberSaveable { mutableIntStateOf(initialTab) }
     var historySubpageOpen by rememberSaveable { mutableStateOf(false) }
+    var showFullChargeStats by rememberSaveable { mutableStateOf(openFullChargeStats) }
     LaunchedEffect(state.authenticationRequired) {
         if (state.authenticationRequired) tab = 4
     }
-    BackHandler(onBack = onShowDevices)
+    BackHandler(onBack = {
+        if (showFullChargeStats) showFullChargeStats = false else onShowDevices()
+    })
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize()) {
-            if (!historySubpageOpen) {
+            if (!historySubpageOpen && !showFullChargeStats) {
                 DeviceSummary(
                     state = state,
                     onShowDevices = onShowDevices,
@@ -77,11 +81,18 @@ internal fun Dashboard(
                 )
             }
             Box(Modifier.weight(1f).fillMaxWidth()) {
-                when (tab) {
+                if (showFullChargeStats) {
+                    FullChargeStatsDestination(
+                        state = state,
+                        onLoadBatteryTrend = onLoadBatteryTrend,
+                        onBack = { showFullChargeStats = false }
+                    )
+                } else when (tab) {
                     0 -> Overview(
                         state,
                         onRequestLocationPermission,
-                        onCyclePreviewScenario = if (isPreview) onCyclePreviewScenario else null
+                        onCyclePreviewScenario = if (isPreview) onCyclePreviewScenario else null,
+                        onOpenFullChargeStats = { showFullChargeStats = true }
                     )
                     1 -> ProtectionParamsPage(state, onRefreshProtectionParams)
                     2 -> RangeTestPage(state, onRequestLocationPermission, onClearSpeedRangeStats)
@@ -108,14 +119,14 @@ internal fun Dashboard(
                     )
                 }
             }
-            if (!historySubpageOpen) {
+            if (!historySubpageOpen && !showFullChargeStats) {
                 DashboardBottomNavigation(selected = tab, includeSettings = true, onSelect = {
                     tab = it
                     if (it != 3) historySubpageOpen = false
                 })
             }
         }
-        if (!historySubpageOpen) {
+        if (!historySubpageOpen && !showFullChargeStats) {
             FloatingActionButton(
                 onClick = onRequestExit,
                 modifier = Modifier
@@ -363,7 +374,7 @@ internal fun DashboardTabSelector(selected: Int, labels: List<String>, onSelect:
 }
 
 @Composable
-private fun PreviewDashboard(initialTab: Int) {
+private fun PreviewDashboard(initialTab: Int, openFullChargeStats: Boolean = false) {
     JbdBmsTheme {
         Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
             Dashboard(
@@ -388,7 +399,8 @@ private fun PreviewDashboard(initialTab: Int) {
                 onTestCriticalTemperatureAlert = {},
                 onRefreshProtectionParams = {},
                 isPreview = true,
-                initialTab = initialTab
+                initialTab = initialTab,
+                openFullChargeStats = openFullChargeStats
             )
         }
     }
@@ -404,4 +416,10 @@ private fun DashboardOverviewPreview() {
 @Composable
 private fun DashboardProtectionParamsPreview() {
     PreviewDashboard(initialTab = 1)
+}
+
+@Preview(name = "详情-满充统计", showBackground = true, widthDp = 392, heightDp = 850)
+@Composable
+private fun DashboardFullChargeStatsPreview() {
+    PreviewDashboard(initialTab = 0, openFullChargeStats = true)
 }

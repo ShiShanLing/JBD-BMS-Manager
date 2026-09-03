@@ -33,13 +33,15 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.bms.jbdmanager.model.BmsUiState
 import com.bms.jbdmanager.model.BatteryTrendRange
+import com.bms.jbdmanager.model.FullChargeDeltaDirection
 import com.bms.jbdmanager.model.HealthDiagnosisLevel
 import com.bms.jbdmanager.model.diagnoseBatteryHealth
+import com.bms.jbdmanager.model.evaluateFullChargeDeltaTrend
 import java.util.Locale
 
 private enum class HistoryDestination(val title: String) {
     Mileage("行程记录"), Protection("告警记录"), Capacity("容量健康"),
-    Trend("电池趋势"), Diagnosis("健康诊断")
+    FullChargeStats("满充统计"), Trend("电池趋势"), Diagnosis("健康诊断")
 }
 
 private data class HistoryMenuEntry(
@@ -60,10 +62,13 @@ internal fun BatteryHistoryPage(
     onDiscardAutomaticCapacityTest: () -> Unit,
     onSaveAutomaticCapacityTestResult: () -> Unit,
     onShowDataManagement: () -> Unit,
-    onSubpageChanged: (Boolean) -> Unit
+    onSubpageChanged: (Boolean) -> Unit,
+    openFullChargeStats: Boolean = false
 ) {
-    var category by rememberSaveable { mutableIntStateOf(0) }
-    var destinationOrdinal by rememberSaveable { mutableIntStateOf(-1) }
+    var category by rememberSaveable { mutableIntStateOf(if (openFullChargeStats) 1 else 0) }
+    var destinationOrdinal by rememberSaveable {
+        mutableIntStateOf(if (openFullChargeStats) HistoryDestination.FullChargeStats.ordinal else -1)
+    }
     val destination = HistoryDestination.entries.getOrNull(destinationOrdinal)
     BackHandler(enabled = destination != null) { destinationOrdinal = -1 }
     LaunchedEffect(destination) { onSubpageChanged(destination != null) }
@@ -92,6 +97,10 @@ internal fun BatteryHistoryPage(
                     onFinishAutomaticCapacityTest,
                     onDiscardAutomaticCapacityTest,
                     onSaveAutomaticCapacityTestResult
+                )
+                HistoryDestination.FullChargeStats -> FullChargeDeltaStatsPage(
+                    samples = state.batteryTrend.fullChargeDeltas,
+                    onLoad = { onLoadBatteryTrend(state.batteryTrend.range) }
                 )
                 HistoryDestination.Trend -> BatteryTrendPage(state.batteryTrend, onLoadBatteryTrend)
                 HistoryDestination.Diagnosis -> BatteryHealthDiagnosisPage(state)
@@ -137,6 +146,12 @@ private fun HealthHistoryMenu(state: BmsUiState, open: (HistoryDestination) -> U
                 HistoryDestination.Capacity
             ),
             HistoryMenuEntry(
+                "满充统计",
+                fullChargeDeltaMenuSummary(state),
+                fullChargeDeltaMenuColor(state),
+                HistoryDestination.FullChargeStats
+            ),
+            HistoryMenuEntry(
                 "电池趋势",
                 "${state.batteryTrend.points.size}个当前图表点 · ${state.batteryTrend.fullChargeFingerprints.size}次满充单体记录",
                 MaterialTheme.colorScheme.primary,
@@ -154,8 +169,9 @@ private fun HealthHistoryMenu(state: BmsUiState, open: (HistoryDestination) -> U
 
 @Composable
 private fun DataHistoryMenu(state: BmsUiState, onShowDataManagement: () -> Unit) {
-    val localRecordCount = state.mileageHistory.sessions.size + state.capacityHealthRecords.size +
-        state.protectionEvents.size + state.batteryTrend.fullChargeFingerprints.size
+        val localRecordCount = state.mileageHistory.sessions.size + state.capacityHealthRecords.size +
+        state.protectionEvents.size + state.batteryTrend.fullChargeFingerprints.size +
+        state.batteryTrend.fullChargeDeltas.size
     HistoryMenu(
         heading = "数据与报告",
         description = "集中管理本地资料。备份、CSV和PDF使用系统文件选择器，不需要额外存储权限。",
@@ -210,7 +226,7 @@ private fun HistoryMenu(
 }
 
 @Composable
-private fun HistoryDetailHeader(title: String, onBack: () -> Unit) {
+internal fun HistoryDetailHeader(title: String, onBack: () -> Unit) {
     Row(
         Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 2.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -252,6 +268,7 @@ private fun BatteryHealthDiagnosisPage(state: BmsUiState) {
 private fun rememberHealthDiagnosis(state: BmsUiState) = remember(
     state.capacityHealthRecords,
     state.batteryTrend.fullChargeFingerprints,
+    state.batteryTrend.fullChargeDeltas,
     state.protectionEvents,
     state.connectedAddress,
     state.lastSnapshot?.deviceAddress
@@ -260,7 +277,8 @@ private fun rememberHealthDiagnosis(state: BmsUiState) = remember(
         state.capacityHealthRecords,
         state.batteryTrend.fullChargeFingerprints,
         state.protectionEvents,
-        state.connectedAddress ?: state.lastSnapshot?.deviceAddress
+        state.connectedAddress ?: state.lastSnapshot?.deviceAddress,
+        state.batteryTrend.fullChargeDeltas
     )
 }
 
@@ -279,6 +297,32 @@ private fun diagnosisMenuColor(level: HealthDiagnosisLevel): Color = when (level
     HealthDiagnosisLevel.Observe -> Color(0xFFFFC107)
     HealthDiagnosisLevel.Normal -> MaterialTheme.colorScheme.primary
     HealthDiagnosisLevel.Insufficient -> MaterialTheme.colorScheme.onSurfaceVariant
+}
+
+@Composable
+private fun fullChargeDeltaMenuColor(state: BmsUiState): Color {
+    val direction = evaluateFullChargeDeltaTrend(state.batteryTrend.fullChargeDeltas).direction
+    return when (direction) {
+        FullChargeDeltaDirection.Improving, FullChargeDeltaDirection.Stable -> MaterialTheme.colorScheme.primary
+        FullChargeDeltaDirection.Worsening -> Color(0xFFFF8A3D)
+        FullChargeDeltaDirection.Insufficient -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
+}
+
+private fun fullChargeDeltaMenuSummary(state: BmsUiState): String {
+    val trend = evaluateFullChargeDeltaTrend(state.batteryTrend.fullChargeDeltas)
+    val count = trend.samples.size
+    val verdict = when (trend.direction) {
+        FullChargeDeltaDirection.Improving -> "向好"
+        FullChargeDeltaDirection.Stable -> "基本稳定"
+        FullChargeDeltaDirection.Worsening -> "变差"
+        FullChargeDeltaDirection.Insufficient -> "待积累"
+    }
+    return when {
+        count == 0 -> "尚无满充压差记录"
+        else -> "$count 次满充压差 · $verdict" +
+            (trend.latestDeltaMv?.let { " · 最新 ${it}mV" } ?: "")
+    }
 }
 
 private fun historyNumber(value: Double): String =

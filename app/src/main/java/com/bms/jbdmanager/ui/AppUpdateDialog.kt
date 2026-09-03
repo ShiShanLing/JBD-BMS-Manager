@@ -38,9 +38,7 @@ internal fun AppUpdateDialog(
         title = { Text("发现新版本 ${info.versionName}") },
         text = {
             Column(
-                modifier = Modifier
-                    .heightIn(max = 420.dp)
-                    .verticalScroll(rememberScrollState()),
+                modifier = Modifier.fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Text(
@@ -48,22 +46,19 @@ internal fun AppUpdateDialog(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 12.sp
                 )
-                ChangelogSection(info.notesSince(state.currentVersionCode))
-                if (state.downloading) {
-                    LinearProgressIndicator(
-                        progress = { state.progressPercent / 100f },
-                        modifier = Modifier.fillMaxWidth(),
-                        gapSize = 0.dp,
-                        drawStopIndicator = {}
-                    )
-                    Text(
-                        "正在下载 ${state.progressPercent}%",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 12.sp
-                    )
-                } else if (state.apkFilePath != null) {
-                    Text("安装包已就绪，点击后开始安装。", fontSize = 12.sp)
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 280.dp)
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    ChangelogSection(info.notesSince(state.currentVersionCode))
                 }
+                UpdateDownloadStatus(
+                    state = state,
+                    readyMessage = "安装包已就绪，点击后开始安装。"
+                )
             }
         },
         dismissButton = {
@@ -120,9 +115,7 @@ internal fun AppVersionDialog(
         title = { Text("App 版本") },
         text = {
             Column(
-                modifier = Modifier
-                    .heightIn(max = 420.dp)
-                    .verticalScroll(rememberScrollState()),
+                modifier = Modifier.fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 VersionInfoRow(
@@ -160,23 +153,20 @@ internal fun AppVersionDialog(
                 if (notes.isNotEmpty()) {
                     HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f))
                     Text("更新说明", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
-                    ChangelogSection(notes)
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 240.dp)
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        ChangelogSection(notes)
+                    }
                 }
-                if (state.downloading) {
-                    LinearProgressIndicator(
-                        progress = { state.progressPercent / 100f },
-                        modifier = Modifier.fillMaxWidth(),
-                        gapSize = 0.dp,
-                        drawStopIndicator = {}
-                    )
-                    Text(
-                        "正在下载 ${state.progressPercent}%",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 12.sp
-                    )
-                } else if (hasNewer && state.apkFilePath != null) {
-                    Text("安装包已就绪，正在打开安装界面。", fontSize = 12.sp)
-                }
+                UpdateDownloadStatus(
+                    state = state,
+                    readyMessage = if (hasNewer) "安装包已就绪，正在打开安装界面。" else null
+                )
             }
         },
         dismissButton = {
@@ -197,6 +187,25 @@ internal fun AppVersionDialog(
             }
         }
     )
+}
+
+@Composable
+private fun UpdateDownloadStatus(state: AppUpdateState, readyMessage: String?) {
+    if (state.downloading) {
+        LinearProgressIndicator(
+            progress = { state.progressPercent / 100f },
+            modifier = Modifier.fillMaxWidth(),
+            gapSize = 0.dp,
+            drawStopIndicator = {}
+        )
+        Text(
+            "正在下载 ${state.progressPercent}%",
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 12.sp
+        )
+    } else if (!readyMessage.isNullOrBlank() && state.apkFilePath != null) {
+        Text(readyMessage, fontSize = 12.sp)
+    }
 }
 
 @Composable

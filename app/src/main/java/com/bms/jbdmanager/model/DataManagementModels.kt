@@ -6,6 +6,7 @@ data class BackupRestorePreview(
     val trendSampleCount: Int,
     val dailySummaryCount: Int,
     val fullChargeFingerprintCount: Int,
+    val fullChargeDeltaCount: Int = 0,
     val preferenceGroupCount: Int
 )
 

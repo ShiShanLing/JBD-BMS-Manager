@@ -20,6 +20,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.bms.jbdmanager.BuildConfig
 import com.bms.jbdmanager.BmsViewModel
 import com.bms.jbdmanager.model.ConnectionPhase
 import com.bms.jbdmanager.model.TemperatureAlertLevel
@@ -57,6 +58,12 @@ fun BmsApp(
     val previewScenario = DemoPreviewScenario.entries[
         previewScenarioOrdinal % DemoPreviewScenario.entries.size
     ]
+    val debugHistoryState = remember { if (BuildConfig.SHOW_DEBUG_TOOLS) demoBmsState() else null }
+    val debugHistorySnapshot = remember(debugHistoryState) {
+        debugHistoryState?.let(::demoLastSnapshot)
+    }
+    val historySnapshot = state.lastSnapshot ?: debugHistorySnapshot
+    val usingDebugHistory = state.lastSnapshot == null && debugHistorySnapshot != null
 
     val dashboardState = if (previewMode) {
         demoBmsState(appUpdate = state.appUpdate, scenario = previewScenario).copy(
@@ -131,14 +138,26 @@ fun BmsApp(
                 .padding(padding)
                 .statusBarsPadding()
         ) {
-            val lastSnapshot = state.lastSnapshot
+            val lastSnapshot = historySnapshot
             if (showLastSnapshot && lastSnapshot != null) {
                 LastSnapshotScreen(
                     snapshot = lastSnapshot,
-                    capacityHealthRecords = state.capacityHealthRecords,
-                    protectionEvents = state.protectionEvents,
-                    batteryTrend = state.batteryTrend,
-                    onLoadBatteryTrend = viewModel::loadBatteryTrend,
+                    capacityHealthRecords = if (usingDebugHistory) {
+                        debugHistoryState?.capacityHealthRecords.orEmpty()
+                    } else {
+                        state.capacityHealthRecords
+                    },
+                    protectionEvents = if (usingDebugHistory) {
+                        debugHistoryState?.protectionEvents.orEmpty()
+                    } else {
+                        state.protectionEvents
+                    },
+                    batteryTrend = if (usingDebugHistory) {
+                        debugHistoryState?.batteryTrend ?: state.batteryTrend
+                    } else {
+                        state.batteryTrend
+                    },
+                    onLoadBatteryTrend = if (usingDebugHistory) ({}) else viewModel::loadBatteryTrend,
                     onAddCapacityHealthRecord = viewModel::addCapacityHealthRecord,
                     onDeleteCapacityHealthRecord = viewModel::deleteCapacityHealthRecord,
                     onStartAutomaticCapacityTest = viewModel::startAutomaticCapacityTest,
@@ -202,7 +221,7 @@ fun BmsApp(
                 }
                 AppHeader(
                     state = state,
-                    onShowLastSnapshot = if (state.lastSnapshot != null) {
+                    onShowLastSnapshot = if (historySnapshot != null) {
                         { showLastSnapshot = true }
                     } else {
                         null
@@ -278,7 +297,8 @@ fun BmsApp(
                     "备份版本：${preview.sourceVersionName}\n" +
                         "趋势明细：${preview.trendSampleCount}条\n" +
                         "每日摘要：${preview.dailySummaryCount}条\n" +
-                        "满充记录：${preview.fullChargeFingerprintCount}次\n\n" +
+                        "满充记录：${preview.fullChargeFingerprintCount}次\n" +
+                        "满充压差：${preview.fullChargeDeltaCount}次\n\n" +
                         "恢复会覆盖当前本地数据，且只能在蓝牙断开时执行。"
                 )
             },

@@ -25,6 +25,7 @@ import com.bms.jbdmanager.model.ScanDevice
 import com.bms.jbdmanager.model.TemperatureAlertLevel
 import com.bms.jbdmanager.model.TemperatureSafetyAlert
 import com.bms.jbdmanager.model.classifyProtectionEvent
+import com.bms.jbdmanager.model.isEffectivelyFullyCharged
 import com.bms.jbdmanager.model.protectionName
 import com.bms.jbdmanager.model.resolveProtectionEvent
 import com.bms.jbdmanager.model.finishCapacityTest
@@ -118,6 +119,7 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
     private var lastTrendSampleAtMillis = 0L
     private var lastTrendMaintenanceAtMillis = 0L
     private var lastFingerprintUiRefreshAtMillis = 0L
+    private var fullChargeDeltaConsideredForSession = false
     private var preparedDataRestore: PreparedDataRestore? = null
     private var lastCapacityTestPersistAtMillis = 0L
     private var lastTripServiceStartAttemptAtMillis = 0L
@@ -616,6 +618,8 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
                     batteryTrend = it.batteryTrend.copy(
                         range = range,
                         points = emptyList(),
+                        fullChargeFingerprints = emptyList(),
+                        fullChargeDeltas = emptyList(),
                         isLoading = false,
                         message = "尚无已连接设备的趋势数据"
                     )
@@ -641,17 +645,21 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
         }
         batteryTrendLoadJob = viewModelScope.launch(Dispatchers.IO) {
             val stored = runCatching {
-                batteryTrendStore.query(address, from, now) to
-                    batteryTrendStore.loadFullChargeFingerprints(address)
+                Triple(
+                    batteryTrendStore.query(address, from, now),
+                    batteryTrendStore.loadFullChargeFingerprints(address),
+                    batteryTrendStore.loadFullChargeDeltas(address)
+                )
             }
             withContext(Dispatchers.Main) {
-                stored.onSuccess { (loaded, fingerprints) ->
+                stored.onSuccess { (loaded, fingerprints, deltas) ->
                     _uiState.update {
                         it.copy(
                             batteryTrend = it.batteryTrend.copy(
                                 range = range,
                                 points = loaded,
                                 fullChargeFingerprints = fingerprints,
+                                fullChargeDeltas = deltas,
                                 isLoading = false,
                                 message = if (loaded.isEmpty()) "这个时间范围还没有趋势数据" else null
                             )
@@ -869,10 +877,14 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
         viewModelScope.launch(Dispatchers.IO) {
             val result = runCatching {
                 val fingerprints = address?.let(batteryTrendStore::loadFullChargeFingerprints).orEmpty()
+                val deltas = address?.let(batteryTrendStore::loadFullChargeDeltas).orEmpty()
                 val reportState = basicSource.copy(
                     capacityHealthRecords = state.capacityHealthRecords,
                     protectionEvents = state.protectionEvents,
-                    batteryTrend = state.batteryTrend.copy(fullChargeFingerprints = fingerprints),
+                    batteryTrend = state.batteryTrend.copy(
+                        fullChargeFingerprints = fingerprints,
+                        fullChargeDeltas = deltas
+                    ),
                     lastSnapshot = state.lastSnapshot
                 )
                 val resolver = getApplication<Application>().contentResolver
@@ -921,10 +933,18 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
                 } else {
                     address?.let(batteryTrendStore::loadFullChargeFingerprints).orEmpty()
                 }
+                val deltas = if (sourceOverride != null) {
+                    state.batteryTrend.fullChargeDeltas
+                } else {
+                    address?.let(batteryTrendStore::loadFullChargeDeltas).orEmpty()
+                }
                 val reportState = basicSource.copy(
                     capacityHealthRecords = state.capacityHealthRecords,
                     protectionEvents = state.protectionEvents,
-                    batteryTrend = state.batteryTrend.copy(fullChargeFingerprints = fingerprints),
+                    batteryTrend = state.batteryTrend.copy(
+                        fullChargeFingerprints = fingerprints,
+                        fullChargeDeltas = deltas
+                    ),
                     lastSnapshot = state.lastSnapshot
                 )
                 val directory = File(getApplication<Application>().cacheDir, "reports").apply { mkdirs() }
@@ -1072,6 +1092,7 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
         }
         communicationRecoveryTriggered = false
         passwordAttempted = false
+        fullChargeDeltaConsideredForSession = false
         _uiState.update {
             it.copy(
                 phase = ConnectionPhase.Ready,
@@ -1212,11 +1233,13 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
                 updateAutomaticCapacityTest(message.value)
                 recordBatteryTrendSample(message.value)
                 recordFullChargeFingerprint()
+                considerFullChargeDeltaOnConnect()
             }
             is JbdMessage.Cells -> {
                 markDataFresh()
                 _uiState.update { it.copy(cells = message.value) }
                 recordFullChargeFingerprint()
+                considerFullChargeDeltaOnConnect()
             }
             is JbdMessage.HardwareVersion -> {
                 _uiState.update {
@@ -1430,6 +1453,28 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
                             batteryTrend = it.batteryTrend.copy(fullChargeFingerprints = fingerprints)
                         )
                     }
+                }
+            }
+        }
+    }
+
+    private fun considerFullChargeDeltaOnConnect() {
+        if (fullChargeDeltaConsideredForSession) return
+        val state = _uiState.value
+        val address = state.connectedAddress ?: return
+        val info = state.basicInfo ?: return
+        val cells = state.cells ?: return
+        fullChargeDeltaConsideredForSession = true
+        if (!info.isEffectivelyFullyCharged()) return
+        val now = System.currentTimeMillis()
+        viewModelScope.launch(Dispatchers.IO) {
+            val deltas = runCatching {
+                val changed = batteryTrendStore.recordFullChargeDelta(address, info, cells, now)
+                if (changed) batteryTrendStore.loadFullChargeDeltas(address) else null
+            }.getOrNull() ?: return@launch
+            withContext(Dispatchers.Main) {
+                _uiState.update {
+                    it.copy(batteryTrend = it.batteryTrend.copy(fullChargeDeltas = deltas))
                 }
             }
         }

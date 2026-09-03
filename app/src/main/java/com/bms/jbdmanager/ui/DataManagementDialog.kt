@@ -52,7 +52,7 @@ internal fun DataManagementDialog(
                 } else {
                     Text("完整备份", fontWeight = FontWeight.Bold, fontSize = 13.sp)
                     Text(
-                        "保存设备、最后状态、行程、续航样本、容量测试、告警、趋势和满充单体记录。",
+                        "保存设备、最后状态、行程、续航样本、容量测试、告警、趋势、满充单体和满充压差记录。",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = 10.sp,
                         lineHeight = 14.sp

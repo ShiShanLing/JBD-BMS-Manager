@@ -49,7 +49,8 @@ fun diagnoseBatteryHealth(
     capacityRecords: List<CapacityHealthRecord>,
     fingerprints: List<FullChargeFingerprint>,
     protectionEvents: List<ProtectionEvent>,
-    deviceAddress: String? = null
+    deviceAddress: String? = null,
+    fullChargeDeltas: List<FullChargeDeltaSample> = emptyList()
 ): BatteryHealthDiagnosis {
     val capacity = capacityRecords.filter { it.qualifiedForHealth }.sortedBy { it.recordedAtMillis }
     val orderedFingerprints = fingerprints
@@ -103,6 +104,10 @@ fun diagnoseBatteryHealth(
             )
             else -> add(cellFinding(cells, baseline, latestFingerprint))
         }
+
+        evaluateFullChargeDeltaTrend(fullChargeDeltas).takeIf {
+            it.direction != FullChargeDeltaDirection.Insufficient
+        }?.let { trend -> add(fullChargeDeltaFinding(trend)) }
 
         val matchingEvents = protectionEvents.filter {
             deviceAddress == null || it.deviceAddress == null || it.deviceAddress == deviceAddress
@@ -241,6 +246,23 @@ private fun cellFinding(
             "两次可比满充记录的整组压差变化${signed(deltaChange.toDouble())}mV。"
         )
     }
+}
+
+private fun fullChargeDeltaFinding(trend: FullChargeDeltaTrend): HealthDiagnosisFinding {
+    val change = trend.changeMv ?: 0.0
+    val level = when (trend.direction) {
+        FullChargeDeltaDirection.Worsening ->
+            if (change >= 20.0) HealthDiagnosisLevel.Warning else HealthDiagnosisLevel.Observe
+        FullChargeDeltaDirection.Improving, FullChargeDeltaDirection.Stable -> HealthDiagnosisLevel.Normal
+        FullChargeDeltaDirection.Insufficient -> HealthDiagnosisLevel.Insufficient
+    }
+    val title = when (trend.direction) {
+        FullChargeDeltaDirection.Improving -> "满充压差在向好"
+        FullChargeDeltaDirection.Stable -> "满充压差基本稳定"
+        FullChargeDeltaDirection.Worsening -> "满充压差在变大"
+        FullChargeDeltaDirection.Insufficient -> "满充压差仍在积累"
+    }
+    return HealthDiagnosisFinding(level, title, trend.summary)
 }
 
 private fun signed(value: Double): String =

@@ -33,7 +33,8 @@ internal data class Metric(
     val label: String,
     val value: String,
     val note: String,
-    val valueColor: Color? = null
+    val valueColor: Color? = null,
+    val onClick: (() -> Unit)? = null
 )
 
 @Composable
@@ -46,15 +47,31 @@ internal fun MetricRow(left: Metric, right: Metric) {
 
 @Composable
 private fun MetricCard(metric: Metric, modifier: Modifier = Modifier) {
-    Card(modifier, colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), shape = RoundedCornerShape(13.dp)) {
+    Card(
+        modifier = if (metric.onClick != null) modifier.clickable(onClick = metric.onClick) else modifier,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        shape = RoundedCornerShape(13.dp)
+    ) {
         Column(Modifier.padding(horizontal = 11.dp, vertical = 6.dp)) {
-            Text(
-                metric.label,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 12.sp,
-                lineHeight = 13.sp,
-                maxLines = 1
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    metric.label,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 12.sp,
+                    lineHeight = 13.sp,
+                    maxLines = 1,
+                    modifier = Modifier.weight(1f)
+                )
+                if (metric.onClick != null) {
+                    Text(
+                        "›",
+                        color = MaterialTheme.colorScheme.primary,
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Light,
+                        lineHeight = 18.sp
+                    )
+                }
+            }
             Spacer(Modifier.height(4.dp))
             Text(
                 metric.value,

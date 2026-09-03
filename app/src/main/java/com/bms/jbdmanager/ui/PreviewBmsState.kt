@@ -3,6 +3,7 @@ package com.bms.jbdmanager.ui
 import com.bms.jbdmanager.model.BmsBasicInfo
 import com.bms.jbdmanager.model.BatteryTrendPoint
 import com.bms.jbdmanager.model.BatteryTrendState
+import com.bms.jbdmanager.model.FullChargeDeltaSample
 import com.bms.jbdmanager.model.FullChargeFingerprint
 import com.bms.jbdmanager.model.CapacityHealthRecord
 import com.bms.jbdmanager.model.BmsUiState
@@ -14,6 +15,7 @@ import com.bms.jbdmanager.model.JbdProtectionParams
 import com.bms.jbdmanager.model.SpeedRangeStats
 import com.bms.jbdmanager.model.TripState
 import com.bms.jbdmanager.model.defaultSpeedRangeStats
+import com.bms.jbdmanager.model.LastBmsSnapshot
 import com.bms.jbdmanager.model.MileageHistoryState
 import com.bms.jbdmanager.model.ProtectionEvent
 import com.bms.jbdmanager.model.ProtectionEventSeverity
@@ -40,6 +42,25 @@ internal fun demoBmsState(
     ),
     scenario: DemoPreviewScenario = DemoPreviewScenario.Charging
 ): BmsUiState = applyDemoScenario(baseDemoBmsState(appUpdate), scenario)
+
+internal fun demoLastSnapshot(state: BmsUiState = demoBmsState()): LastBmsSnapshot {
+    val info = requireNotNull(state.basicInfo)
+    return LastBmsSnapshot(
+        savedAtMillis = info.updatedAtMillis,
+        deviceAddress = state.connectedAddress,
+        deviceName = state.connectedName,
+        modelName = state.modelName,
+        chipType = state.chipType,
+        protocolProfile = state.protocolProfile,
+        detectedProtocol = state.detectedProtocol,
+        basicInfo = info,
+        cells = state.cells,
+        protectionParams = state.protectionParams,
+        gpsSpeed = state.gpsSpeed,
+        trip = state.trip.copy(isTracking = false),
+        mileageHistory = state.mileageHistory
+    )
+}
 
 private fun baseDemoBmsState(appUpdate: AppUpdateState): BmsUiState {
     val now = System.currentTimeMillis()
@@ -208,7 +229,19 @@ private fun baseDemoBmsState(appUpdate: AppUpdateState): BmsUiState {
                     maximumTemperatureC = 32.4,
                     cellVoltagesMv = listOf(3487, 3491, 3488, 3489, 3492, 3489, 3494, 3490, 3491, 3492, 3452, 3490, 3491, 3489, 3492, 3490)
                 )
-            )
+            ),
+            fullChargeDeltas = List(24) { index ->
+                val monthsAgo = 23L - index
+                FullChargeDeltaSample(
+                    capturedAtMillis = now - monthsAgo * 30L * 24 * 60 * 60 * 1_000,
+                    cellDeltaMv = 40 - index * 22 / 23,
+                    totalVoltageV = 55.96 - index * 0.008,
+                    currentA = if (index % 4 == 0) 0.3 else 0.1,
+                    socPercent = if (index % 5 == 0) 99 else 100,
+                    maximumTemperatureC = 30.0 + (index % 4),
+                    remainingCapacityAh = if (index % 3 == 0) 49.8 else 50.0
+                )
+            }
         ),
         appUpdate = appUpdate
     )

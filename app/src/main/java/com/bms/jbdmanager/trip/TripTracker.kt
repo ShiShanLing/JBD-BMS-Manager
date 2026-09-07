@@ -4,7 +4,9 @@ import android.content.Context
 import com.bms.jbdmanager.model.BmsBasicInfo
 import com.bms.jbdmanager.model.RangeTestState
 import com.bms.jbdmanager.model.TripState
+import com.bms.jbdmanager.model.TripTrackingMode
 import com.bms.jbdmanager.model.defaultSpeedRangeStats
+import com.bms.jbdmanager.model.resolveMileageCountdownReachedAt
 import com.bms.jbdmanager.storage.MileageHistoryStore
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -42,6 +44,7 @@ object TripTracker {
             val retainedSpeedRangeStats = _state.value.speedRangeStats
             _state.value = TripState(
                 isTracking = true,
+                trackingMode = TripTrackingMode.Bms,
                 startedAtMillis = nowMillis,
                 startSocPercent = info.stateOfChargePercent,
                 currentSocPercent = info.stateOfChargePercent,
@@ -59,9 +62,32 @@ object TripTracker {
     }
 
     @Synchronized
+    fun beginMileageOnly(
+        nowMillis: Long = System.currentTimeMillis(),
+        countdownTargetKm: Int = 30
+    ) {
+        ensureInitialized()
+        if (_state.value.isTracking && _state.value.isMileageOnly) return
+        val retainedSpeedRangeStats = _state.value.speedRangeStats
+        _state.value = TripState(
+            isTracking = true,
+            trackingMode = TripTrackingMode.MileageOnly,
+            startedAtMillis = nowMillis,
+            gpsMessage = "正在等待 GPS 定位",
+            mileageCountdownTargetKm = countdownTargetKm.coerceIn(5, 200),
+            speedRangeStats = retainedSpeedRangeStats
+        )
+        lastBmsAtMillis = null
+        lastCurrentA = null
+        lastVoltageV = null
+        lastLocationPersistAtMillis = 0L
+        persist()
+    }
+
+    @Synchronized
     fun updateBms(info: BmsBasicInfo, nowMillis: Long = System.currentTimeMillis()) {
         ensureInitialized()
-        if (!_state.value.isTracking) return
+        if (!_state.value.isTracking || _state.value.isMileageOnly) return
 
         var consumedAh = _state.value.integratedConsumedAh
         var consumedWh = _state.value.integratedConsumedWh
@@ -133,7 +159,8 @@ object TripTracker {
         if (!_state.value.isTracking) return
         val speedKmh = (speedMetersPerSecond * 3.6).coerceAtLeast(0.0)
         val currentTest = _state.value.rangeTest
-        val testAcceptsSample = currentTest.isActive &&
+        val bmsTracking = !_state.value.isMileageOnly
+        val testAcceptsSample = bmsTracking && currentTest.isActive &&
             speedKmh >= currentTest.minimumSpeedKmh && speedKmh <= currentTest.maximumSpeedKmh &&
             addedDistanceMeters > 0.0 && elapsedSeconds in 0.0..30.0
         val updatedTest = if (testAcceptsSample) {
@@ -143,7 +170,7 @@ object TripTracker {
             )
         } else currentTest
         var speedRangeStats = _state.value.speedRangeStats
-        if (addedDistanceMeters > 0.0 && elapsedSeconds in 0.0..30.0) {
+        if (bmsTracking && addedDistanceMeters > 0.0 && elapsedSeconds in 0.0..30.0) {
             val speedIndex = speedRangeStats.indexOfFirst { it.accepts(speedKmh) }
             if (speedIndex >= 0) {
                 speedRangeStats = speedRangeStats.mapIndexed { index, stats ->
@@ -154,13 +181,25 @@ object TripTracker {
                 }
             }
         }
+        val updatedDistanceMeters = _state.value.distanceMeters + addedDistanceMeters.coerceAtLeast(0.0)
+        val countdownReachedAt = resolveMileageCountdownReachedAt(
+            existingReachedAtMillis = _state.value.mileageCountdownReachedAtMillis,
+            mileageOnly = _state.value.isMileageOnly,
+            distanceMeters = updatedDistanceMeters,
+            targetKm = _state.value.mileageCountdownTargetKm,
+            timestampMillis = timestampMillis
+        )
         _state.value = _state.value.copy(
-            distanceMeters = (_state.value.distanceMeters + addedDistanceMeters.coerceAtLeast(0.0)),
+            distanceMeters = updatedDistanceMeters,
             currentSpeedKmh = speedKmh,
             locationAccuracyMeters = accuracyMeters,
             validLocationPoints = _state.value.validLocationPoints + 1,
             lastLocationAtMillis = timestampMillis,
             gpsMessage = "GPS 行程记录中",
+            mileageCountdownReachedAtMillis = countdownReachedAt,
+            mileageCountdownAcknowledged = if (
+                countdownReachedAt != null && _state.value.mileageCountdownReachedAtMillis == null
+            ) false else _state.value.mileageCountdownAcknowledged,
             rangeTest = updatedTest,
             speedRangeStats = speedRangeStats
         )
@@ -183,6 +222,28 @@ object TripTracker {
         ensureInitialized()
         if (!_state.value.isTracking) return
         _state.value = _state.value.copy(gpsMessage = message, currentSpeedKmh = 0.0)
+        persist()
+    }
+
+    @Synchronized
+    fun setMileageCountdownTarget(targetKm: Int, nowMillis: Long = System.currentTimeMillis()) {
+        ensureInitialized()
+        if (!_state.value.isTracking || !_state.value.isMileageOnly) return
+        val target = targetKm.coerceIn(5, 200)
+        val reachedAt = nowMillis.takeIf { _state.value.distanceMeters >= target * 1_000.0 }
+        _state.value = _state.value.copy(
+            mileageCountdownTargetKm = target,
+            mileageCountdownReachedAtMillis = reachedAt,
+            mileageCountdownAcknowledged = false
+        )
+        persist()
+    }
+
+    @Synchronized
+    fun acknowledgeMileageCountdown() {
+        ensureInitialized()
+        if (!_state.value.isMileageOnly || _state.value.mileageCountdownReachedAtMillis == null) return
+        _state.value = _state.value.copy(mileageCountdownAcknowledged = true)
         persist()
     }
 

@@ -44,6 +44,7 @@ class TripTrackingService : Service(), LocationListener {
     private var lastLocationCallbackAtElapsedMillis = 0L
     private var foregroundStarted = false
     private var lastNotificationUpdateAtMillis = 0L
+    private var lastCountdownAlertAtMillis: Long? = null
     private val speedSamples = ArrayDeque<Pair<Long, Double>>()
     private var average5SecondSpeedKmh = 0.0
 
@@ -192,6 +193,7 @@ class TripTrackingService : Service(), LocationListener {
         notificationJob = serviceScope.launch {
             TripTracker.state.collect { state ->
                 if (!foregroundStarted || !state.isTracking) return@collect
+                postCountdownAlertIfNeeded(state)
                 val now = SystemClock.elapsedRealtime()
                 if (
                     canPostNotifications() &&
@@ -252,11 +254,23 @@ class TripTrackingService : Service(), LocationListener {
                 NOTIFICATION_CHANNEL_ID,
                 "行程记录",
                 NotificationManager.IMPORTANCE_LOW
-            ).apply { description = "在后台持续统计电池行程" }
+            ).apply { description = "在后台持续统计骑行行程" }
+        )
+        manager.createNotificationChannel(
+            NotificationChannel(
+                COUNTDOWN_ALERT_CHANNEL_ID,
+                "换电里程提醒",
+                NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description = "达到设定的换电里程时播放声音并弹出提醒"
+                enableVibration(true)
+                vibrationPattern = longArrayOf(0, 500, 250, 500, 250, 800)
+            }
         )
     }
 
     private fun buildNotification(state: TripState): android.app.Notification {
+        if (state.isMileageOnly) return buildMileageOnlyNotification(state)
         val soc = state.currentSocPercent ?: state.startSocPercent ?: 0
         val currentText = when {
             state.currentA < -0.05 -> "放电 ${decimal(state.currentA, 1)}A"
@@ -306,6 +320,92 @@ class TripTrackingService : Service(), LocationListener {
             .build()
     }
 
+    private fun buildMileageOnlyNotification(state: TripState): android.app.Notification {
+        val speedText = decimal(state.currentSpeedKmh, 1)
+        val distanceText = decimal(state.distanceKm, 1)
+        val countdownText = if (state.mileageCountdownReached) {
+            "已到 ${state.mileageCountdownTargetKm} km"
+        } else {
+            "换电剩余 ${decimal(state.mileageCountdownRemainingKm, 1)} km"
+        }
+        val summary = "当前 $speedText km/h · $countdownText"
+        val details = "$summary\n近5秒均速 ${decimal(average5SecondSpeedKmh, 1)} km/h · 本次行驶 $distanceText km"
+        val openAppIntent = PendingIntent.getActivity(
+            this,
+            0,
+            Intent(this, MainActivity::class.java),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val stopIntent = PendingIntent.getService(
+            this,
+            1,
+            Intent(this, TripTrackingService::class.java).setAction(ACTION_STOP),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val exitAllIntent = PendingIntent.getActivity(
+            this,
+            2,
+            Intent(this, MainActivity::class.java)
+                .putExtra(MainActivity.EXTRA_EXIT_ALL, true)
+                .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        return NotificationCompat.Builder(this, NOTIFICATION_CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_launcher_monochrome)
+            .setContentTitle("GPS行程 · $distanceText km")
+            .setContentText(summary)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(details))
+            .setShortCriticalText("GPS")
+            .setRequestPromotedOngoing(true)
+            .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .setSilent(true)
+            .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
+            .setContentIntent(openAppIntent)
+            .addAction(0, "结束行程", stopIntent)
+            .addAction(0, "退出全部", exitAllIntent)
+            .build()
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun postCountdownAlertIfNeeded(state: TripState) {
+        if (!state.isMileageOnly) return
+        val reachedAt = state.mileageCountdownReachedAtMillis
+        if (reachedAt == null) {
+            lastCountdownAlertAtMillis = null
+            NotificationManagerCompat.from(this).cancel(COUNTDOWN_ALERT_NOTIFICATION_ID)
+            return
+        }
+        if (state.mileageCountdownAcknowledged) return
+        if (lastCountdownAlertAtMillis == reachedAt || !canPostNotifications()) return
+        lastCountdownAlertAtMillis = reachedAt
+        val openAppIntent = PendingIntent.getActivity(
+            this,
+            3,
+            Intent(this, MainActivity::class.java)
+                .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val distanceText = decimal(state.distanceKm, 1)
+        val notification = NotificationCompat.Builder(this, COUNTDOWN_ALERT_CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_launcher_monochrome)
+            .setContentTitle("换电里程已达到 ${state.mileageCountdownTargetKm} km")
+            .setContentText("本块电池已行驶 $distanceText km，请及时寻找换电站")
+            .setStyle(
+                NotificationCompat.BigTextStyle().bigText(
+                    "本块电池已行驶 $distanceText km，已经达到设定的换电提醒里程，请及时寻找换电站。"
+                )
+            )
+            .setPriority(NotificationCompat.PRIORITY_MAX)
+            .setCategory(NotificationCompat.CATEGORY_ALARM)
+            .setDefaults(android.app.Notification.DEFAULT_ALL)
+            .setAutoCancel(true)
+            .setOnlyAlertOnce(true)
+            .setContentIntent(openAppIntent)
+            .build()
+        NotificationManagerCompat.from(this).notify(COUNTDOWN_ALERT_NOTIFICATION_ID, notification)
+    }
+
     private fun decimal(value: Double, digits: Int): String =
         "%.${digits}f".format(Locale.US, value).trimEnd('0').trimEnd('.')
 
@@ -326,6 +426,8 @@ class TripTrackingService : Service(), LocationListener {
         const val ACTION_STOP = "com.bms.jbdmanager.trip.STOP"
         private const val NOTIFICATION_CHANNEL_ID = "bms_trip_tracking"
         private const val NOTIFICATION_ID = 3202
+        private const val COUNTDOWN_ALERT_CHANNEL_ID = "battery_swap_mileage_alerts"
+        private const val COUNTDOWN_ALERT_NOTIFICATION_ID = 3203
         private const val NOTIFICATION_UPDATE_INTERVAL_MS = 5_000L
         private const val LOCATION_INTERVAL_MS = 1_000L
         private const val LOCATION_WATCHDOG_INTERVAL_MS = 15_000L

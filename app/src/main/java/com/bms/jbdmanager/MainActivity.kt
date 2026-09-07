@@ -30,6 +30,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import com.bms.jbdmanager.model.ConnectionPhase
+import com.bms.jbdmanager.model.BmsUiState
 import com.bms.jbdmanager.safety.TemperatureAlertNotifier
 import com.bms.jbdmanager.ui.BmsApp
 import com.bms.jbdmanager.ui.theme.JbdBmsTheme
@@ -201,7 +202,7 @@ class MainActivity : ComponentActivity() {
         }
         val state = viewModel.uiState.value
         updatePictureInPictureParams(
-            enabled = state.phase == ConnectionPhase.Ready && state.basicInfo != null
+            enabled = isPictureInPictureEligible(state)
         )
     }
 
@@ -220,7 +221,7 @@ class MainActivity : ComponentActivity() {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 viewModel.uiState.collect { state ->
                     updatePictureInPictureParams(
-                        enabled = state.phase == ConnectionPhase.Ready && state.basicInfo != null
+                        enabled = isPictureInPictureEligible(state)
                     )
                 }
             }
@@ -234,6 +235,10 @@ class MainActivity : ComponentActivity() {
         } catch (_: IllegalStateException) {
         }
     }
+
+    private fun isPictureInPictureEligible(state: BmsUiState): Boolean =
+        (state.phase == ConnectionPhase.Ready && state.basicInfo != null) ||
+            (state.trip.isTracking && state.trip.isMileageOnly)
 
     private fun updatePictureInPictureParams(enabled: Boolean) {
         if (!packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)) return

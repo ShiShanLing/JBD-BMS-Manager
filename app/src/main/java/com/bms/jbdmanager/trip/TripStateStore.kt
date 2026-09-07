@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import com.bms.jbdmanager.model.RangeTestState
 import com.bms.jbdmanager.model.TripState
+import com.bms.jbdmanager.model.TripTrackingMode
 import com.bms.jbdmanager.model.defaultSpeedRangeStats
 
 internal class TripStateStore(context: Context) {
@@ -13,6 +14,7 @@ internal class TripStateStore(context: Context) {
     fun save(value: TripState) {
         preferences.edit()
             .putBoolean("is_tracking", value.isTracking)
+            .putString("tracking_mode", value.trackingMode.name)
             .putLong("started_at", value.startedAtMillis ?: -1L)
             .putString("distance_m", value.distanceMeters.toString())
             .putInt("start_soc", value.startSocPercent ?: -1)
@@ -26,6 +28,9 @@ internal class TripStateStore(context: Context) {
             .putInt("valid_points", value.validLocationPoints)
             .putLong("last_location_at", value.lastLocationAtMillis ?: -1L)
             .putString("gps_message", value.gpsMessage)
+            .putInt("mileage_countdown_target_km", value.mileageCountdownTargetKm)
+            .putLong("mileage_countdown_reached_at", value.mileageCountdownReachedAtMillis ?: -1L)
+            .putBoolean("mileage_countdown_acknowledged", value.mileageCountdownAcknowledged)
             .putBoolean("range_active", value.rangeTest.isActive)
             .putInt("range_target_speed", value.rangeTest.targetSpeedKmh)
             .putInt("range_tolerance", value.rangeTest.speedToleranceKmh)
@@ -56,6 +61,9 @@ internal class TripStateStore(context: Context) {
         if (!preferences.contains("started_at")) return TripState()
         return TripState(
             isTracking = preferences.getBoolean("is_tracking", false),
+            trackingMode = preferences.getString("tracking_mode", null)
+                ?.let { stored -> runCatching { TripTrackingMode.valueOf(stored) }.getOrNull() }
+                ?: TripTrackingMode.Bms,
             startedAtMillis = preferences.getLong("started_at", -1L).takeIf { it >= 0L },
             distanceMeters = preferences.getString("distance_m", null)?.toDoubleOrNull() ?: 0.0,
             startSocPercent = preferences.getInt("start_soc", -1).takeIf { it >= 0 },
@@ -69,6 +77,15 @@ internal class TripStateStore(context: Context) {
             validLocationPoints = preferences.getInt("valid_points", 0),
             lastLocationAtMillis = preferences.getLong("last_location_at", -1L).takeIf { it >= 0L },
             gpsMessage = preferences.getString("gps_message", null) ?: "等待恢复行程",
+            mileageCountdownTargetKm = preferences.getInt("mileage_countdown_target_km", 30)
+                .coerceIn(5, 200),
+            mileageCountdownReachedAtMillis = preferences
+                .getLong("mileage_countdown_reached_at", -1L)
+                .takeIf { it >= 0L },
+            mileageCountdownAcknowledged = preferences.getBoolean(
+                "mileage_countdown_acknowledged",
+                false
+            ),
             rangeTest = RangeTestState(
                 isActive = preferences.getBoolean("range_active", false),
                 targetSpeedKmh = preferences.getInt("range_target_speed", 40),

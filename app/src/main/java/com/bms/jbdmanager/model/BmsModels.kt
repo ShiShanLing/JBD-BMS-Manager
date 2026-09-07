@@ -1,6 +1,7 @@
 package com.bms.jbdmanager.model
 
 import com.bms.jbdmanager.update.AppUpdateState
+import kotlin.math.roundToInt
 
 /** 电动自行车动能回收会产生充电电流，只有静置且大于 7A 才视为插枪充电。 */
 const val SignificantChargeCurrentA = 7.0
@@ -200,8 +201,27 @@ data class HistoricalRangeEstimate(
 fun defaultSpeedRangeStats(): List<SpeedRangeStats> =
     listOf(25, 30, 35, 40, 45, 50, 55, 60).map(::SpeedRangeStats)
 
+enum class TripTrackingMode {
+    Bms,
+    MileageOnly
+}
+
+internal fun resolveMileageCountdownReachedAt(
+    existingReachedAtMillis: Long?,
+    mileageOnly: Boolean,
+    distanceMeters: Double,
+    targetKm: Int,
+    timestampMillis: Long
+): Long? = when {
+    !mileageOnly -> existingReachedAtMillis
+    existingReachedAtMillis != null -> existingReachedAtMillis
+    distanceMeters >= targetKm * 1_000.0 -> timestampMillis
+    else -> null
+}
+
 data class TripState(
     val isTracking: Boolean = false,
+    val trackingMode: TripTrackingMode = TripTrackingMode.Bms,
     val startedAtMillis: Long? = null,
     val distanceMeters: Double = 0.0,
     val startSocPercent: Int? = null,
@@ -216,10 +236,22 @@ data class TripState(
     val validLocationPoints: Int = 0,
     val lastLocationAtMillis: Long? = null,
     val gpsMessage: String = "等待开始行程",
+    val mileageCountdownTargetKm: Int = 30,
+    val mileageCountdownReachedAtMillis: Long? = null,
+    val mileageCountdownAcknowledged: Boolean = false,
     val rangeTest: RangeTestState = RangeTestState(),
     val speedRangeStats: List<SpeedRangeStats> = defaultSpeedRangeStats()
 ) {
+    val isMileageOnly: Boolean get() = trackingMode == TripTrackingMode.MileageOnly
     val distanceKm: Double get() = distanceMeters / 1_000.0
+    val mileageCountdownRemainingKm: Double
+        get() = (mileageCountdownTargetKm - distanceKm).coerceAtLeast(0.0)
+    val mileageCountdownRemainingPercent: Int
+        get() = (
+            mileageCountdownRemainingKm / mileageCountdownTargetKm.coerceAtLeast(1) * 100.0
+            ).roundToInt().coerceIn(0, 100)
+    val mileageCountdownReached: Boolean
+        get() = mileageCountdownReachedAtMillis != null
     val socDropPercent: Int?
         get() = startSocPercent?.let { start -> currentSocPercent?.let { (start - it).coerceAtLeast(0) } }
     val bmsConsumedAh: Double?

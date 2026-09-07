@@ -37,11 +37,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.TextUnit
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.bms.jbdmanager.model.BmsUiState
@@ -60,24 +64,90 @@ internal fun PipScreen(state: BmsUiState) {
             nowMillis = SystemClock.elapsedRealtime()
         )
     }
-    Box(
+    BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
-            .padding(horizontal = 8.dp, vertical = 6.dp)
     ) {
-        AnimatedContent(
-            targetState = charging,
-            transitionSpec = { fadeIn() togetherWith fadeOut() },
-            label = "pipMode"
-        ) { isCharging ->
-            if (isCharging) PipChargingLayout(state) else PipRidingLayout(state)
+        val layout = pipLayoutSpec(maxWidth.value, maxHeight.value)
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = layout.horizontalPadding, vertical = layout.verticalPadding)
+        ) {
+            if (state.trip.isMileageOnly) {
+                PipMileageOnlyLayout(state, layout)
+            } else {
+                AnimatedContent(
+                    targetState = charging,
+                    transitionSpec = { fadeIn() togetherWith fadeOut() },
+                    label = "pipMode"
+                ) { isCharging ->
+                    if (isCharging) PipChargingLayout(state, layout) else PipRidingLayout(state, layout)
+                }
+            }
         }
     }
 }
 
+internal fun resolvePipContentScale(widthDp: Float, heightDp: Float): Float =
+    minOf(widthDp / 240f, heightDp / 135f).coerceIn(0.72f, 1.55f)
+
+private data class PipLayoutSpec(
+    val horizontalPadding: Dp,
+    val verticalPadding: Dp,
+    val headerSpacing: Dp,
+    val metricSpacing: Dp,
+    val topMetricColumnSpacing: Dp,
+    val topMetricRowSpacing: Dp,
+    val speedMetricSpacing: Dp,
+    val bottomSpeedHeight: Dp,
+    val barHeight: Dp,
+    val socSize: TextUnit,
+    val socLineHeight: TextUnit,
+    val headerLabelSize: TextUnit,
+    val speedRowLabelSize: TextUnit,
+    val speedSize: TextUnit,
+    val speedLineHeight: TextUnit,
+    val speedUnitSize: TextUnit,
+    val maximumSpeedSize: TextUnit,
+    val maximumSpeedLineHeight: TextUnit,
+    val maximumSpeedUnitSize: TextUnit,
+    val metricLabelSize: TextUnit,
+    val metricValueSize: TextUnit,
+    val topMetricValueSize: TextUnit
+)
+
+private fun pipLayoutSpec(widthDp: Float, heightDp: Float): PipLayoutSpec {
+    val scale = resolvePipContentScale(widthDp, heightDp)
+    return PipLayoutSpec(
+        horizontalPadding = (8f * scale).dp,
+        verticalPadding = (6f * scale).dp,
+        headerSpacing = (8f * scale).dp,
+        metricSpacing = (6f * scale).dp,
+        topMetricColumnSpacing = (10f * scale).dp,
+        topMetricRowSpacing = (2f * scale).dp,
+        speedMetricSpacing = (6f * scale).dp,
+        bottomSpeedHeight = (34f * scale).dp,
+        barHeight = (6f * scale).dp,
+        socSize = (24f * scale).sp,
+        socLineHeight = (26f * scale).sp,
+        headerLabelSize = (9f * scale).sp,
+        speedRowLabelSize = (9f * scale).sp,
+        speedSize = (24f * scale).sp,
+        speedLineHeight = (26f * scale).sp,
+        speedUnitSize = (10f * scale).sp,
+        maximumSpeedSize = (17f * scale).sp,
+        maximumSpeedLineHeight = (19f * scale).sp,
+        maximumSpeedUnitSize = (8f * scale).sp,
+        metricLabelSize = (9f * scale).sp,
+        metricValueSize = (12f * scale).sp,
+        topMetricValueSize = (11f * scale).sp
+    )
+}
+
 @Composable
-private fun PipRidingLayout(state: BmsUiState) {
+private fun PipRidingLayout(state: BmsUiState, layout: PipLayoutSpec) {
     val info = state.basicInfo
     val discharging = info != null && info.currentA < -0.05
     val regen = info != null && info.currentA > 0.05
@@ -86,16 +156,9 @@ private fun PipRidingLayout(state: BmsUiState) {
         regen -> MaterialTheme.colorScheme.secondary
         else -> MaterialTheme.colorScheme.onSurfaceVariant
     }
-    val status = when {
-        info == null -> "等待数据"
-        info.stateOfChargePercent >= 100 -> "已充满"
-        discharging -> "放电中"
-        regen -> "动能回收"
-        state.trip.currentSpeedKmh >= 0.5 -> "骑行中"
-        else -> "静置"
-    }
     val moving = state.trip.currentSpeedKmh >= 0.5
-    val speedText = "${compactNumber(state.trip.currentSpeedKmh, 1)}"
+    val speedText = compactNumber(state.trip.currentSpeedKmh, 1)
+    val maximumSpeedText = compactNumber(state.gpsSpeed.maximumKmh, 1)
     val rangeText = state.trip.estimatedRemainingKm?.let { "${compactNumber(it)} km" } ?: "采集中"
     val dischargeCurrent = if (discharging) abs(info!!.currentA) else 0.0
     val socProgress = (info?.stateOfChargePercent ?: 0) / 100f
@@ -103,97 +166,283 @@ private fun PipRidingLayout(state: BmsUiState) {
 
     Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.SpaceBetween) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            PipSocBlock(soc = info?.stateOfChargePercent, accent = accent, compact = true)
-            Spacer(Modifier.width(8.dp))
-            Column(Modifier.weight(1f)) {
-                Text("当前车速", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 8.sp, maxLines = 1)
-                Row(verticalAlignment = Alignment.Bottom) {
-                    Text(
-                        speedText,
-                        color = accent,
-                        fontWeight = FontWeight.Black,
-                        fontSize = 22.sp,
-                        lineHeight = 24.sp,
-                        maxLines = 1
+            PipSocBlock(soc = info?.stateOfChargePercent, accent = accent, layout = layout)
+            Spacer(Modifier.width(layout.headerSpacing))
+            Column(
+                modifier = Modifier.weight(1f),
+                horizontalAlignment = Alignment.End,
+                verticalArrangement = Arrangement.spacedBy(layout.topMetricRowSpacing)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(layout.topMetricColumnSpacing)
+                ) {
+                    PipMetric(
+                        "今日里程",
+                        "${compactNumber(todayKm, 1)} km",
+                        Modifier.weight(1f),
+                        accent,
+                        labelFontSize = layout.metricLabelSize,
+                        valueFontSize = layout.topMetricValueSize,
+                        horizontalAlignment = Alignment.End
                     )
-                    Text(
-                        " km/h",
-                        color = accent,
-                        fontWeight = FontWeight.SemiBold,
-                        fontSize = 10.sp,
-                        modifier = Modifier.padding(start = 1.dp, bottom = 3.dp)
+                    PipMetric(
+                        "剩余续航",
+                        rangeText,
+                        Modifier.weight(1f),
+                        accent,
+                        labelFontSize = layout.metricLabelSize,
+                        valueFontSize = layout.topMetricValueSize,
+                        horizontalAlignment = Alignment.End
+                    )
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(layout.topMetricColumnSpacing)
+                ) {
+                    PipMetric(
+                        "放电电流",
+                        if (discharging) "${compactNumber(dischargeCurrent, 1)} A" else "--",
+                        Modifier.weight(1f),
+                        if (discharging) accent else null,
+                        labelFontSize = layout.metricLabelSize,
+                        valueFontSize = layout.topMetricValueSize,
+                        horizontalAlignment = Alignment.End
+                    )
+                    PipMetric(
+                        "本次里程",
+                        if (state.trip.startedAtMillis != null) "${compactNumber(state.trip.distanceKm, 1)} km" else "--",
+                        Modifier.weight(1f),
+                        labelFontSize = layout.metricLabelSize,
+                        valueFontSize = layout.topMetricValueSize,
+                        horizontalAlignment = Alignment.End
                     )
                 }
             }
-            PipStatusChip(
-                status = status,
-                accent = accent,
-                compact = true,
-                modifier = Modifier.width(52.dp)
-            )
         }
         PipRidingSocBar(
             progress = socProgress,
             moving = moving,
             discharging = discharging,
             accent = accent,
-            compact = true
+            height = layout.barHeight
         )
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            PipMetric(
-                "今日总里程",
-                "${compactNumber(todayKm, 1)} km",
-                Modifier.weight(1f),
-                accent,
-                compact = true,
-                labelFontSize = 10.sp,
-                valueFontSize = 13.sp
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(layout.speedMetricSpacing)
+        ) {
+            PipInlineSpeedMetric(
+                label = "当前",
+                speed = speedText,
+                accent = accent,
+                valueSize = layout.maximumSpeedSize,
+                lineHeight = layout.maximumSpeedLineHeight,
+                unitSize = layout.maximumSpeedUnitSize,
+                labelSize = layout.speedRowLabelSize,
+                modifier = Modifier.weight(1f).height(layout.bottomSpeedHeight)
             )
-            PipMetric("剩余续航", rangeText, Modifier.weight(1f), accent, compact = true)
-            PipMetric(
-                "放电电流",
-                if (discharging) "${compactNumber(dischargeCurrent, 1)} A" else "--",
-                Modifier.weight(1f),
-                if (discharging) accent else null,
-                compact = true
-            )
-            PipMetric(
-                "本次",
-                if (state.trip.startedAtMillis != null) "${compactNumber(state.trip.distanceKm, 1)} km" else "--",
-                Modifier.weight(1f),
-                compact = true
+            PipInlineSpeedMetric(
+                label = "最高",
+                speed = maximumSpeedText,
+                accent = MaterialTheme.colorScheme.onSurface,
+                valueSize = layout.maximumSpeedSize,
+                lineHeight = layout.maximumSpeedLineHeight,
+                unitSize = layout.maximumSpeedUnitSize,
+                labelSize = layout.speedRowLabelSize,
+                modifier = Modifier.weight(1f).height(layout.bottomSpeedHeight)
             )
         }
     }
 }
 
 @Composable
-private fun PipStatusChip(
-    status: String,
+private fun PipMileageOnlyLayout(state: BmsUiState, layout: PipLayoutSpec) {
+    val trip = state.trip
+    val remainingKm = trip.mileageCountdownRemainingKm
+    val remainingPercent = trip.mileageCountdownRemainingPercent
+    val reached = trip.mileageCountdownReached
+    val accent = when {
+        reached -> MaterialTheme.colorScheme.error
+        remainingKm <= 5.0 -> MaterialTheme.colorScheme.secondary
+        else -> MaterialTheme.colorScheme.primary
+    }
+    val targetKm = trip.mileageCountdownTargetKm.coerceAtLeast(1)
+    val progress = (remainingKm / targetKm).toFloat().coerceIn(0f, 1f)
+    val todayKm = state.mileageHistory.todayDistanceKm()
+
+    Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.SpaceBetween) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(0.9f), horizontalAlignment = Alignment.Start) {
+                Row(verticalAlignment = Alignment.Bottom) {
+                    Text(
+                        "剩余",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = layout.headerLabelSize,
+                        modifier = Modifier.padding(end = 3.dp, bottom = 2.dp),
+                        maxLines = 1
+                    )
+                    Text(
+                        "$remainingPercent%",
+                        color = accent,
+                        fontWeight = FontWeight.Black,
+                        fontSize = layout.socSize,
+                        lineHeight = layout.socLineHeight,
+                        maxLines = 1
+                    )
+                }
+                Text(
+                    if (reached) "已达到提醒里程" else "${compactNumber(remainingKm, 1)} km 可用",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = layout.headerLabelSize,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            Spacer(Modifier.width(layout.headerSpacing))
+            Column(
+                modifier = Modifier.weight(1.1f),
+                horizontalAlignment = Alignment.End,
+                verticalArrangement = Arrangement.spacedBy(layout.topMetricRowSpacing)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(layout.topMetricColumnSpacing)
+                ) {
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        horizontalAlignment = Alignment.End
+                    ) {
+                        Text(
+                            "本段里程",
+                            modifier = Modifier.fillMaxWidth(),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = layout.metricLabelSize,
+                            maxLines = 1,
+                            textAlign = TextAlign.End
+                        )
+                        val secondaryColor = MaterialTheme.colorScheme.onSurfaceVariant
+                        Text(
+                            text = buildAnnotatedString {
+                                withStyle(
+                                    SpanStyle(
+                                        color = accent,
+                                        fontSize = layout.topMetricValueSize,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                ) {
+                                    append(compactNumber(trip.distanceKm, 1))
+                                }
+                                withStyle(
+                                    SpanStyle(
+                                        color = secondaryColor,
+                                        fontSize = layout.metricLabelSize,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                ) {
+                                    append("/${targetKm}km")
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            lineHeight = layout.topMetricValueSize * 1.15f,
+                            maxLines = 1,
+                            overflow = TextOverflow.Clip,
+                            textAlign = TextAlign.End
+                        )
+                    }
+                    PipMetric(
+                        "今日累计",
+                        "${compactNumber(todayKm, 1)} km",
+                        Modifier.weight(1f),
+                        labelFontSize = layout.metricLabelSize,
+                        valueFontSize = layout.topMetricValueSize,
+                        horizontalAlignment = Alignment.End
+                    )
+                }
+                PipMetric(
+                    "近5秒平均",
+                    "${compactNumber(state.gpsSpeed.average5SecondsKmh, 1)} km/h",
+                    Modifier.fillMaxWidth(),
+                    labelFontSize = layout.metricLabelSize,
+                    valueFontSize = layout.topMetricValueSize,
+                    horizontalAlignment = Alignment.End
+                )
+            }
+        }
+        PipChargeBar(progress = progress, accent = accent, height = layout.barHeight)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(layout.speedMetricSpacing)
+        ) {
+            PipInlineSpeedMetric(
+                label = "当前",
+                speed = compactNumber(state.gpsSpeed.currentKmh, 1),
+                accent = accent,
+                valueSize = layout.maximumSpeedSize,
+                lineHeight = layout.maximumSpeedLineHeight,
+                unitSize = layout.maximumSpeedUnitSize,
+                labelSize = layout.speedRowLabelSize,
+                modifier = Modifier.weight(1f).height(layout.bottomSpeedHeight)
+            )
+            PipInlineSpeedMetric(
+                label = "最高",
+                speed = compactNumber(state.gpsSpeed.maximumKmh, 1),
+                accent = MaterialTheme.colorScheme.onSurface,
+                valueSize = layout.maximumSpeedSize,
+                lineHeight = layout.maximumSpeedLineHeight,
+                unitSize = layout.maximumSpeedUnitSize,
+                labelSize = layout.speedRowLabelSize,
+                modifier = Modifier.weight(1f).height(layout.bottomSpeedHeight)
+            )
+        }
+    }
+}
+
+@Composable
+private fun PipInlineSpeedMetric(
+    label: String,
+    speed: String,
     accent: Color,
-    compact: Boolean = false,
+    valueSize: TextUnit,
+    lineHeight: TextUnit,
+    unitSize: TextUnit,
+    labelSize: TextUnit,
     modifier: Modifier = Modifier
 ) {
     Surface(
         modifier = modifier,
-        color = accent.copy(alpha = 0.18f),
-        shape = RoundedCornerShape(999.dp)
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+        shape = RoundedCornerShape(10.dp)
     ) {
-        Text(
-            status,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(
-                    horizontal = if (compact) 6.dp else 8.dp,
-                    vertical = if (compact) 2.dp else 3.dp
-                ),
-            color = accent,
-            fontWeight = FontWeight.Bold,
-            fontSize = if (compact) 8.sp else 10.sp,
-            textAlign = TextAlign.Center,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
+        Row(
+            modifier = Modifier.fillMaxSize().padding(horizontal = 4.dp),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                speed,
+                color = accent,
+                fontWeight = FontWeight.Black,
+                fontSize = valueSize,
+                lineHeight = lineHeight,
+                maxLines = 1
+            )
+            Text(
+                " km/h",
+                color = accent,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = unitSize,
+                modifier = Modifier.padding(start = 2.dp),
+                maxLines = 1
+            )
+            Text(
+                label,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = labelSize,
+                modifier = Modifier.padding(start = 5.dp),
+                maxLines = 1
+            )
+        }
     }
 }
 
@@ -270,7 +519,7 @@ private fun PipRidingSocBar(
     moving: Boolean,
     discharging: Boolean,
     accent: Color,
-    compact: Boolean = false
+    height: Dp
 ) {
     val fill = progress.coerceIn(0f, 1f)
     val animate = moving || discharging
@@ -287,8 +536,8 @@ private fun PipRidingSocBar(
     BoxWithConstraints(
         modifier = Modifier
             .fillMaxWidth()
-            .height(if (compact) 6.dp else 8.dp)
-            .clip(RoundedCornerShape(if (compact) 6.dp else 8.dp))
+            .height(height)
+            .clip(RoundedCornerShape(height))
             .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f))
     ) {
         Box(
@@ -321,7 +570,7 @@ private fun PipRidingSocBar(
 }
 
 @Composable
-private fun PipChargingLayout(state: BmsUiState) {
+private fun PipChargingLayout(state: BmsUiState, layout: PipLayoutSpec) {
     val info = state.basicInfo ?: return
     val cells = state.cells
     val fullAh = info.fullChargeCapacityAh ?: info.nominalCapacityAh
@@ -337,10 +586,15 @@ private fun PipChargingLayout(state: BmsUiState) {
     val deltaColor = deltaAlertColor(deltaMv, isNearFull(info, cells)) ?: accent
     Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.SpaceBetween) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            PipSocBlock(soc = info.stateOfChargePercent, accent = accent)
-            Spacer(Modifier.width(12.dp))
+            PipSocBlock(soc = info.stateOfChargePercent, accent = accent, layout = layout)
+            Spacer(Modifier.width(layout.headerSpacing))
             Column(Modifier.weight(1f)) {
-                Text("预计充满", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 10.sp, maxLines = 1)
+                Text(
+                    "预计充满",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = layout.headerLabelSize,
+                    maxLines = 1
+                )
                 Text(
                     when {
                         full -> "已充满"
@@ -349,40 +603,49 @@ private fun PipChargingLayout(state: BmsUiState) {
                     },
                     color = accent,
                     fontWeight = FontWeight.Black,
-                    fontSize = 22.sp,
-                    lineHeight = 24.sp,
+                    fontSize = layout.speedSize,
+                    lineHeight = layout.speedLineHeight,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
             }
         }
-        PipChargeBar(progress = info.stateOfChargePercent / 100f, accent = accent)
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            PipMetric("充电电流", "${compactNumber(info.currentA, 2)} A", Modifier.weight(1f), accent)
+        PipChargeBar(progress = info.stateOfChargePercent / 100f, accent = accent, height = layout.barHeight)
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(layout.metricSpacing)) {
+            PipMetric(
+                "充电电流",
+                "${compactNumber(info.currentA, 2)} A",
+                Modifier.weight(1f),
+                accent,
+                labelFontSize = layout.metricLabelSize,
+                valueFontSize = layout.metricValueSize
+            )
             PipMetric(
                 "压差",
                 deltaMv?.let { "$it mV" } ?: "--",
                 Modifier.weight(1f),
-                deltaColor
+                deltaColor,
+                labelFontSize = layout.metricLabelSize,
+                valueFontSize = layout.metricValueSize
             )
         }
     }
 }
 
 @Composable
-private fun PipSocBlock(soc: Int?, accent: Color, compact: Boolean = false) {
+private fun PipSocBlock(soc: Int?, accent: Color, layout: PipLayoutSpec) {
     Column(horizontalAlignment = Alignment.Start) {
         Text(
             soc?.let { "$it%" } ?: "--",
             fontWeight = FontWeight.Black,
-            fontSize = if (compact) 22.sp else 28.sp,
-            lineHeight = if (compact) 24.sp else 30.sp,
+            fontSize = layout.socSize,
+            lineHeight = layout.socLineHeight,
             color = accent
         )
         Text(
             "SOC",
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            fontSize = if (compact) 8.sp else 10.sp
+            fontSize = layout.headerLabelSize
         )
     }
 }
@@ -393,45 +656,49 @@ private fun PipMetric(
     value: String,
     modifier: Modifier = Modifier,
     valueColor: Color? = null,
-    compact: Boolean = false,
     labelFontSize: TextUnit? = null,
-    valueFontSize: TextUnit? = null
+    valueFontSize: TextUnit? = null,
+    horizontalAlignment: Alignment.Horizontal = Alignment.Start
 ) {
-    val resolvedLabelSize = labelFontSize ?: if (compact) 8.sp else 10.sp
-    val resolvedValueSize = valueFontSize ?: if (compact) 11.sp else 14.sp
+    val resolvedLabelSize = labelFontSize ?: 10.sp
+    val resolvedValueSize = valueFontSize ?: 14.sp
     val resolvedValueLineHeight = when {
-        valueFontSize != null -> 15.sp
-        compact -> 13.sp
+        valueFontSize != null -> valueFontSize * 1.15f
         else -> 16.sp
     }
-    Column(modifier) {
+    val textAlignment = if (horizontalAlignment == Alignment.End) TextAlign.End else TextAlign.Start
+    Column(modifier, horizontalAlignment = horizontalAlignment) {
         Text(
             label,
+            modifier = Modifier.fillMaxWidth(),
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             fontSize = resolvedLabelSize,
             maxLines = 1,
-            overflow = TextOverflow.Ellipsis
+            overflow = TextOverflow.Ellipsis,
+            textAlign = textAlignment
         )
         Text(
             value,
+            modifier = Modifier.fillMaxWidth(),
             color = valueColor ?: MaterialTheme.colorScheme.onSurface,
             fontWeight = FontWeight.Bold,
             fontSize = resolvedValueSize,
             lineHeight = resolvedValueLineHeight,
             maxLines = 1,
-            overflow = TextOverflow.Ellipsis
+            overflow = TextOverflow.Ellipsis,
+            textAlign = textAlignment
         )
     }
 }
 
 @Composable
-private fun PipChargeBar(progress: Float, accent: Color) {
+private fun PipChargeBar(progress: Float, accent: Color, height: Dp) {
     val fill = progress.coerceIn(0f, 1f)
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(8.dp)
-            .clip(RoundedCornerShape(8.dp))
+            .height(height)
+            .clip(RoundedCornerShape(height))
             .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f))
     ) {
         Box(

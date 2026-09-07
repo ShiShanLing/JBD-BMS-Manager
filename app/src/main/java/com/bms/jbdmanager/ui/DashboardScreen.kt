@@ -38,6 +38,7 @@ internal fun Dashboard(
     state: BmsUiState,
     onShowDevices: () -> Unit,
     onDisconnect: () -> Unit,
+    onStartMileageOnlyTrip: () -> Unit,
     onSubmitPassword: (String) -> Boolean,
     onRequestLocationPermission: () -> Unit,
     onRequestExit: () -> Unit,
@@ -77,6 +78,7 @@ internal fun Dashboard(
                     state = state,
                     onShowDevices = onShowDevices,
                     onDisconnect = onDisconnect,
+                    onStartMileageOnlyTrip = onStartMileageOnlyTrip,
                     onEnterPictureInPicture = onEnterPictureInPicture
                 )
             }
@@ -146,6 +148,7 @@ private fun DeviceSummary(
     state: BmsUiState,
     onShowDevices: () -> Unit,
     onDisconnect: () -> Unit,
+    onStartMileageOnlyTrip: () -> Unit,
     onEnterPictureInPicture: () -> Unit
 ) {
     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -182,6 +185,12 @@ private fun DeviceSummary(
             )
         }
         Spacer(Modifier.width(3.dp))
+        OutlinedButton(
+            onClick = onStartMileageOnlyTrip,
+            modifier = Modifier.height(34.dp),
+            contentPadding = PaddingValues(horizontal = 9.dp, vertical = 0.dp)
+        ) { Text("仅GPS", fontSize = 11.sp) }
+        Spacer(Modifier.width(4.dp))
         OutlinedButton(
             onClick = onShowDevices,
             modifier = Modifier.height(34.dp),
@@ -381,6 +390,7 @@ private fun PreviewDashboard(initialTab: Int, openFullChargeStats: Boolean = fal
                 state = demoBmsState(),
                 onShowDevices = {},
                 onDisconnect = {},
+                onStartMileageOnlyTrip = {},
                 onSubmitPassword = { false },
                 onRequestLocationPermission = {},
                 onRequestExit = {},

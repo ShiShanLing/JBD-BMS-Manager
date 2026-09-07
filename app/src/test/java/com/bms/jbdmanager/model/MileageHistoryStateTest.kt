@@ -146,4 +146,27 @@ class MileageHistoryStateTest {
         )
         assertEquals(7.0, history.todayDistanceKm(), 0.1)
     }
+
+    @Test
+    fun gpsOnlySessionStillContributesMileageWithoutEnergyData() {
+        val today = LocalDate.now()
+        val startedAt = today.atTime(12, 0).atZone(zone).toInstant().toEpochMilli()
+        val history = MileageHistoryState(
+            sessions = listOf(
+                TripSessionRecord(
+                    startedAtMillis = startedAt,
+                    finishedAtMillis = startedAt + 1_800_000,
+                    distanceMeters = 12_600.0,
+                    consumedAh = 0.0,
+                    consumedWh = 0.0
+                )
+            )
+        )
+
+        val todayRecord = history.dailyRecords(includeActiveTrip = false).single()
+        assertEquals(12.6, todayRecord.distanceKm, 0.0001)
+        assertEquals(0.0, todayRecord.consumedAh, 0.0001)
+        assertEquals(0.0, todayRecord.consumedWh, 0.0001)
+        assertEquals(1, todayRecord.tripCount)
+    }
 }

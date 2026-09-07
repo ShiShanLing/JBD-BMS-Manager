@@ -161,7 +161,14 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
     fun setLocationPermissionGranted(granted: Boolean) {
         _uiState.update { it.copy(locationPermissionGranted = granted) }
         if (granted) {
-            startOrUpdateTripTracking()
+            if (TripTracker.state.value.isMileageOnly) {
+                if (!ensureTripTrackingService()) {
+                    TripTracker.finish("无法启动后台定位")
+                    onError("GPS 行程服务启动失败，请保持 App 在前台后重试")
+                }
+            } else {
+                startOrUpdateTripTracking()
+            }
         } else if (TripTracker.state.value.isTracking) {
             TripTracker.finish("精确位置权限不可用，行程已停止")
             getApplication<Application>().stopService(tripServiceIntent)
@@ -180,6 +187,10 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
     fun refreshBluetoothState() = bleManager.refreshBluetoothState()
 
     fun startScan() {
+        if (TripTracker.state.value.isTracking && TripTracker.state.value.isMileageOnly) {
+            onError("请先结束当前 GPS 行程")
+            return
+        }
         if (!_uiState.value.permissionsGranted) {
             onError("请先允许附近设备权限")
             return
@@ -196,6 +207,10 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
     fun stopScan() = bleManager.stopScan()
 
     fun connect(address: String) {
+        if (TripTracker.state.value.isTracking && TripTracker.state.value.isMileageOnly) {
+            onError("请先结束当前 GPS 行程")
+            return
+        }
         autoConnectAttempted = true
         manualDisconnect = false
         cancelReconnect()
@@ -203,6 +218,88 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
         _uiState.update { it.copy(errorMessage = null) }
         frameAssembler.clear()
         bleManager.connect(address)
+    }
+
+    fun startMileageOnlyTrip(): Boolean {
+        val application = getApplication<Application>()
+        if (!_uiState.value.locationPermissionGranted) {
+            onError("请先允许精确位置权限")
+            return false
+        }
+        if (TripTracker.state.value.isTracking && TripTracker.state.value.isMileageOnly) {
+            return ensureTripTrackingService()
+        }
+
+        saveLastSnapshot()
+        if (TripTracker.state.value.isTracking) {
+            TripTracker.finish("已切换为仅 GPS 行程")
+        }
+        gpsSpeedTracker.reset()
+        TripTracker.resetAutoStartSuppression()
+        TripTracker.beginMileageOnly()
+        if (!ensureTripTrackingService()) {
+            TripTracker.finish("无法启动后台定位")
+            application.stopService(tripServiceIntent)
+            onError("GPS 行程服务启动失败，请保持 App 在前台后重试")
+            return false
+        }
+
+        manualDisconnect = true
+        autoConnectAttempted = true
+        cancelReconnect()
+        reconnectAttempt = 0
+        bleManager.stopScan()
+        val shouldDisconnectBle = _uiState.value.phase !in setOf(
+            ConnectionPhase.Idle,
+            ConnectionPhase.Error
+        )
+        _uiState.update {
+            it.copy(
+                phase = if (shouldDisconnectBle) ConnectionPhase.Disconnecting else ConnectionPhase.Idle,
+                isScanning = false,
+                reconnectAttempt = 0,
+                reconnectInSeconds = null,
+                errorMessage = null
+            )
+        }
+        if (shouldDisconnectBle) {
+            bleManager.disconnect()
+        } else {
+            manualDisconnect = false
+            _uiState.update { it.copy(connectedAddress = null, connectedName = null) }
+        }
+        return true
+    }
+
+    fun finishMileageOnlyTrip() {
+        val trip = TripTracker.state.value
+        if (!trip.isTracking || !trip.isMileageOnly) return
+        gpsSpeedTracker.reset()
+        TripTracker.finish("GPS 行程已结束")
+        getApplication<Application>().stopService(tripServiceIntent)
+        _uiState.update { it.copy(gpsSpeed = GpsSpeedState()) }
+    }
+
+    fun resetMileageOnlyTrip() {
+        val trip = TripTracker.state.value
+        if (!trip.isTracking || !trip.isMileageOnly) return
+        val countdownTargetKm = trip.mileageCountdownTargetKm
+        TripTracker.finish("已更换电池，上一段行程已保存")
+        gpsSpeedTracker.reset()
+        TripTracker.beginMileageOnly(countdownTargetKm = countdownTargetKm)
+        if (!ensureTripTrackingService()) {
+            TripTracker.finish("无法继续后台定位")
+            onError("GPS 行程服务启动失败，请保持 App 在前台后重试")
+        }
+        _uiState.update { it.copy(gpsSpeed = GpsSpeedState()) }
+    }
+
+    fun setMileageCountdownTarget(targetKm: Int) {
+        TripTracker.setMileageCountdownTarget(targetKm)
+    }
+
+    fun acknowledgeMileageCountdown() {
+        TripTracker.acknowledgeMileageCountdown()
     }
 
     fun disconnect() {
@@ -1115,7 +1212,8 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
     override fun onDisconnected(reason: String?) {
         saveLastSnapshot()
         automaticCapacityTestStore.save(_uiState.value.automaticCapacityTest)
-        val preserveGpsSpeed = !manualDisconnect && TripTracker.state.value.isTracking
+        val activeTrip = TripTracker.state.value
+        val preserveGpsSpeed = activeTrip.isTracking && (!manualDisconnect || activeTrip.isMileageOnly)
         if (!preserveGpsSpeed) {
             gpsSpeedTracker.reset()
         }
@@ -1545,6 +1643,7 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
     private fun startOrUpdateTripTracking(info: com.bms.jbdmanager.model.BmsBasicInfo? = _uiState.value.basicInfo) {
         val state = _uiState.value
         if (!state.locationPermissionGranted || state.phase != ConnectionPhase.Ready || info == null) return
+        if (TripTracker.state.value.isTracking && TripTracker.state.value.isMileageOnly) return
         if (TripTracker.isAutoStartSuppressed()) return
         val startingNewTrip = !TripTracker.state.value.isTracking
         if (startingNewTrip) {
@@ -1647,6 +1746,7 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
     }
 
     private fun tryAutoConnect(supported: Boolean, enabled: Boolean) {
+        if (TripTracker.state.value.isTracking && TripTracker.state.value.isMileageOnly) return
         if (autoConnectAttempted || !supported || !enabled || !_uiState.value.permissionsGranted) return
         if (_uiState.value.phase != ConnectionPhase.Idle) return
         val saved = savedDeviceStore.load()

@@ -40,6 +40,81 @@ class TripStateTest {
     }
 
     @Test
+    fun mileageOnlyTripKeepsMileageWithoutProducingBatteryEstimates() {
+        val trip = TripState(
+            isTracking = true,
+            trackingMode = TripTrackingMode.MileageOnly,
+            distanceMeters = 12_600.0
+        )
+
+        assertEquals(true, trip.isMileageOnly)
+        assertEquals(12.6, trip.distanceKm, 0.0001)
+        assertEquals(17.4, trip.mileageCountdownRemainingKm, 0.0001)
+        assertEquals(58, trip.mileageCountdownRemainingPercent)
+        assertEquals(false, trip.mileageCountdownReached)
+        assertEquals(0.0, trip.consumedAh, 0.0001)
+        assertNull(trip.ahPer100Km)
+        assertNull(trip.whPerKm)
+        assertNull(trip.estimatedRemainingKm)
+        assertNull(trip.historicalRangeEstimate())
+    }
+
+    @Test
+    fun mileageCountdownRemainingPercentTracksDistanceAndStopsAtZero() {
+        assertEquals(
+            100,
+            TripState(mileageCountdownTargetKm = 40).mileageCountdownRemainingPercent
+        )
+        assertEquals(
+            75,
+            TripState(
+                mileageCountdownTargetKm = 40,
+                distanceMeters = 10_000.0
+            ).mileageCountdownRemainingPercent
+        )
+        assertEquals(
+            0,
+            TripState(
+                mileageCountdownTargetKm = 40,
+                distanceMeters = 45_000.0
+            ).mileageCountdownRemainingPercent
+        )
+    }
+
+    @Test
+    fun mileageCountdownTriggersOnceWhenTargetIsReached() {
+        assertNull(
+            resolveMileageCountdownReachedAt(
+                existingReachedAtMillis = null,
+                mileageOnly = true,
+                distanceMeters = 29_999.0,
+                targetKm = 30,
+                timestampMillis = 100L
+            )
+        )
+        assertEquals(
+            200L,
+            resolveMileageCountdownReachedAt(
+                existingReachedAtMillis = null,
+                mileageOnly = true,
+                distanceMeters = 30_000.0,
+                targetKm = 30,
+                timestampMillis = 200L
+            )
+        )
+        assertEquals(
+            200L,
+            resolveMileageCountdownReachedAt(
+                existingReachedAtMillis = 200L,
+                mileageOnly = true,
+                distanceMeters = 31_000.0,
+                targetKm = 30,
+                timestampMillis = 300L
+            )
+        )
+    }
+
+    @Test
     fun rangeTestCalculatesOnlyItsIndependentEffectiveSamples() {
         val test = RangeTestState(
             targetSpeedKmh = 40,

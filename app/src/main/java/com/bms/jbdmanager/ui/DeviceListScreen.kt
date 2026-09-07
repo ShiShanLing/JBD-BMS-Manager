@@ -151,6 +151,7 @@ internal fun ScanPanel(
     connect: (String) -> Unit,
     disconnect: () -> Unit,
     refreshNearby: () -> Unit,
+    startMileageOnlyTrip: () -> Unit,
     showDashboard: () -> Unit,
     showPreview: () -> Unit
 ) {
@@ -179,6 +180,13 @@ internal fun ScanPanel(
                 OutlinedButton(onClick = showPreview, modifier = Modifier.fillMaxWidth()) {
                     Text("预览详情（测试数据）")
                 }
+            }
+            Spacer(Modifier.height(10.dp))
+            OutlinedButton(
+                onClick = startMileageOnlyTrip,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("仅 GPS 记录行程")
             }
         }
 

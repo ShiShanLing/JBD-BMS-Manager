@@ -51,6 +51,8 @@ fun BmsApp(
         androidx.compose.runtime.mutableStateOf(false)
     }
     var showExitConfirmation by remember { androidx.compose.runtime.mutableStateOf(false) }
+    var showMileageOnlyConfirmation by remember { androidx.compose.runtime.mutableStateOf(false) }
+    var mileageOnlyPermissionPending by rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
     var showAppVersion by remember { androidx.compose.runtime.mutableStateOf(false) }
     var previewMode by rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
     var previewScenarioOrdinal by rememberSaveable { mutableIntStateOf(0) }
@@ -128,6 +130,26 @@ fun BmsApp(
         if (state.phase == ConnectionPhase.Idle) locationPermissionRequestedForConnection = false
     }
 
+    LaunchedEffect(state.locationPermissionGranted, mileageOnlyPermissionPending) {
+        if (state.locationPermissionGranted && mileageOnlyPermissionPending) {
+            mileageOnlyPermissionPending = false
+            previewMode = false
+            showDashboard = false
+            viewModel.startMileageOnlyTrip()
+        }
+    }
+
+    val requestMileageOnlyTrip: () -> Unit = {
+        if (state.locationPermissionGranted) {
+            previewMode = false
+            showDashboard = false
+            viewModel.startMileageOnlyTrip()
+        } else {
+            mileageOnlyPermissionPending = true
+            requestLocationPermission()
+        }
+    }
+
     Scaffold(
         snackbarHost = { SnackbarHost(snackbar) },
         containerColor = MaterialTheme.colorScheme.background
@@ -139,7 +161,16 @@ fun BmsApp(
                 .statusBarsPadding()
         ) {
             val lastSnapshot = historySnapshot
-            if (showLastSnapshot && lastSnapshot != null) {
+            if (state.trip.isTracking && state.trip.isMileageOnly) {
+                MileageOnlyTripScreen(
+                    state = state,
+                    onFinish = viewModel::finishMileageOnlyTrip,
+                    onResetSegment = viewModel::resetMileageOnlyTrip,
+                    onSetCountdownTarget = viewModel::setMileageCountdownTarget,
+                    onAcknowledgeCountdown = viewModel::acknowledgeMileageCountdown,
+                    onEnterPictureInPicture = enterPictureInPicture
+                )
+            } else if (showLastSnapshot && lastSnapshot != null) {
                 LastSnapshotScreen(
                     snapshot = lastSnapshot,
                     capacityHealthRecords = if (usingDebugHistory) {
@@ -187,6 +218,7 @@ fun BmsApp(
                             viewModel.disconnect()
                         }
                     },
+                    onStartMileageOnlyTrip = { showMileageOnlyConfirmation = true },
                     onSubmitPassword = viewModel::submitBluetoothPassword,
                     onRequestLocationPermission = requestLocationPermission,
                     onRequestExit = { showExitConfirmation = true },
@@ -236,6 +268,7 @@ fun BmsApp(
                     connect = viewModel::connect,
                     disconnect = viewModel::disconnect,
                     refreshNearby = refreshNearby,
+                    startMileageOnlyTrip = requestMileageOnlyTrip,
                     showDashboard = { showDashboard = true },
                     showPreview = {
                         previewScenarioOrdinal = 0
@@ -335,6 +368,26 @@ fun BmsApp(
                         exitApp()
                     }
                 ) { Text("退出全部", color = MaterialTheme.colorScheme.error) }
+            }
+        )
+    }
+    if (showMileageOnlyConfirmation) {
+        AlertDialog(
+            onDismissRequest = { showMileageOnlyConfirmation = false },
+            title = { Text("切换为仅 GPS 行程？") },
+            text = {
+                Text("当前 BMS 行程会先保存，随后断开蓝牙并继续累计 GPS 里程。新里程不会参与耗电、续航、容量或健康度计算。")
+            },
+            dismissButton = {
+                TextButton(onClick = { showMileageOnlyConfirmation = false }) { Text("取消") }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showMileageOnlyConfirmation = false
+                        requestMileageOnlyTrip()
+                    }
+                ) { Text("开始 GPS 行程", color = MaterialTheme.colorScheme.primary) }
             }
         )
     }

@@ -1,10 +1,19 @@
 package com.bms.jbdmanager.ui
 
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PipChargingModeResolverTest {
+    @Test
+    fun contentScaleGrowsContinuouslyWithPictureInPictureBounds() {
+        assertEquals(0.72f, resolvePipContentScale(widthDp = 160f, heightDp = 90f), 0.001f)
+        assertEquals(1.0f, resolvePipContentScale(widthDp = 240f, heightDp = 135f), 0.001f)
+        assertEquals(1.3f, resolvePipContentScale(widthDp = 312f, heightDp = 175.5f), 0.001f)
+        assertEquals(1.55f, resolvePipContentScale(widthDp = 400f, heightDp = 225f), 0.001f)
+    }
+
     @Test
     fun brakingRegenerationDoesNotSwitchToChargingLayout() {
         val resolver = PipChargingModeResolver()

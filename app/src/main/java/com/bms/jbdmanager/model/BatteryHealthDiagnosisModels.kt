@@ -2,6 +2,8 @@ package com.bms.jbdmanager.model
 
 import kotlin.math.abs
 
+//MARK:健康诊断等级
+//HealthDiagnosisLevel 枚举健康诊断的全部合法取值；新增状态时需要同步检查解析、存储和界面分支。
 enum class HealthDiagnosisLevel {
     Insufficient,
     Normal,
@@ -10,18 +12,24 @@ enum class HealthDiagnosisLevel {
     Critical
 }
 
+//MARK:诊断可信程度
+//HealthDiagnosisConfidence 枚举健康诊断的全部合法取值；新增状态时需要同步检查解析、存储和界面分支。
 enum class HealthDiagnosisConfidence {
     Low,
     Medium,
     High
 }
 
+//MARK:健康诊断结论
+//HealthDiagnosisFinding 将健康诊断诊断项相关字段组合为不可变值，避免跨层传递时出现部分字段不同步。
 data class HealthDiagnosisFinding(
     val level: HealthDiagnosisLevel,
     val title: String,
     val detail: String
 )
 
+//MARK:单体健康诊断
+//CellHealthDiagnosis 将单体健康诊断相关字段组合为不可变值，避免跨层传递时出现部分字段不同步。
 data class CellHealthDiagnosis(
     val cellNumber: Int,
     val baselineMv: Int,
@@ -33,6 +41,8 @@ data class CellHealthDiagnosis(
     val level: HealthDiagnosisLevel
 )
 
+//MARK:电池健康诊断
+//BatteryHealthDiagnosis 将电池健康诊断相关字段组合为不可变值，避免跨层传递时出现部分字段不同步。
 data class BatteryHealthDiagnosis(
     val overallLevel: HealthDiagnosisLevel,
     val confidence: HealthDiagnosisConfidence,
@@ -45,6 +55,8 @@ data class BatteryHealthDiagnosis(
     val comparableFingerprintCount: Int
 )
 
+//MARK:诊断电池健康
+//diagnoseBatteryHealth 综合容量测试、逐串满充指纹、压差趋势、温度和保护历史生成电池健康诊断。
 fun diagnoseBatteryHealth(
     capacityRecords: List<CapacityHealthRecord>,
     fingerprints: List<FullChargeFingerprint>,
@@ -173,12 +185,16 @@ fun diagnoseBatteryHealth(
     )
 }
 
+//MARK:判断温度可比
+//temperaturesComparable 判断两次样本温差是否足够接近，避免把环境温度差异误判为电芯退化。
 private fun temperaturesComparable(first: FullChargeFingerprint, second: FullChargeFingerprint): Boolean {
     val firstTemperature = first.maximumTemperatureC ?: return true
     val secondTemperature = second.maximumTemperatureC ?: return true
     return abs(firstTemperature - secondTemperature) <= 7.0
 }
 
+//MARK:比较单体电压
+//compareCells 逐串比较基准与最新满充电压，定位下降明显或长期偏低的电芯。
 private fun compareCells(
     baseline: FullChargeFingerprint,
     latest: FullChargeFingerprint
@@ -208,6 +224,8 @@ private fun compareCells(
     }
 }
 
+//MARK:诊断容量健康
+//capacityFinding 根据合格容量测试计算 SOH 及变化趋势，生成容量健康诊断项。
 private fun capacityFinding(record: CapacityHealthRecord): HealthDiagnosisFinding {
     val level = when {
         record.sohPercent < 75.0 -> HealthDiagnosisLevel.Critical
@@ -222,6 +240,8 @@ private fun capacityFinding(record: CapacityHealthRecord): HealthDiagnosisFindin
     )
 }
 
+//MARK:诊断单体健康
+//cellFinding 根据逐串电压变化和最低电芯位置生成一致性诊断项。
 private fun cellFinding(
     cells: List<CellHealthDiagnosis>,
     baseline: FullChargeFingerprint,
@@ -248,6 +268,8 @@ private fun cellFinding(
     }
 }
 
+//MARK:诊断满充压差
+//fullChargeDeltaFinding 根据满充压差长期方向和变化量生成压差健康诊断项。
 private fun fullChargeDeltaFinding(trend: FullChargeDeltaTrend): HealthDiagnosisFinding {
     val change = trend.changeMv ?: 0.0
     val level = when (trend.direction) {
@@ -265,9 +287,13 @@ private fun fullChargeDeltaFinding(trend: FullChargeDeltaTrend): HealthDiagnosis
     return HealthDiagnosisFinding(level, title, trend.summary)
 }
 
+//MARK:格式化符号
+//signed 把signed映射为统一名称、格式或默认结构，供存储和界面共同复用。
 private fun signed(value: Double): String =
     "${if (value > 0) "+" else ""}${formatDiagnosisNumber(value)}"
 
+//MARK:格式化诊断
+//formatDiagnosisNumber 把诊断映射为统一名称、格式或默认结构，供存储和界面共同复用。
 private fun formatDiagnosisNumber(value: Double): String =
     String.format(java.util.Locale.US, "%.1f", value).trimEnd('0').trimEnd('.')
 

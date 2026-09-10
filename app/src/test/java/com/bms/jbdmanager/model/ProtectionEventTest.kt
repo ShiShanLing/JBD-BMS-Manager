@@ -4,8 +4,12 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
+//MARK:测试保护事件
+//ProtectionEventTest 验证 ProtectionEvent 的正常流程、边界输入和需要长期保持的回归行为。
 class ProtectionEventTest {
     @Test
+    //MARK:测试预期欠压
+    //验证lowsocundervoltageisexpectedcutoff场景的关键输出，防止后续修改破坏既有行为。
     fun lowSocUndervoltageIsExpectedCutoff() {
         val result = classifyProtectionEvent(
             bit = 3,
@@ -17,6 +21,8 @@ class ProtectionEventTest {
     }
 
     @Test
+    //MARK:测试单体压差
+    //验证earlysingle单体undervoltagewithlarge压差is危险场景的关键输出，防止后续修改破坏既有行为。
     fun earlySingleCellUndervoltageWithLargeDeltaIsCritical() {
         val result = classifyProtectionEvent(
             bit = 1,
@@ -28,6 +34,8 @@ class ProtectionEventTest {
     }
 
     @Test
+    //MARK:测试负载欠压
+    //验证大loadundervoltageisrecordedas警告场景的关键输出，防止后续修改破坏既有行为。
     fun highLoadUndervoltageIsRecordedAsWarning() {
         val result = classifyProtectionEvent(
             bit = 3,
@@ -39,6 +47,8 @@ class ProtectionEventTest {
     }
 
     @Test
+    //MARK:测试电压跌落
+    //验证short大loadundervoltageislabeledas电压sagafter恢复场景的关键输出，防止后续修改破坏既有行为。
     fun shortHighLoadUndervoltageIsLabeledAsVoltageSagAfterRecovery() {
         val event = ProtectionEvent(
             id = 1L,
@@ -58,6 +68,8 @@ class ProtectionEventTest {
         assertTrue(resolved.summary.contains("短时欠压"))
     }
 
+    //MARK:测试样本信息
+    //构造保护事件测试使用的 BMS 基本信息，允许按用例覆盖 SOC、电流和保护位。
     private fun sampleInfo(soc: Int, currentA: Double) = BmsBasicInfo(
         totalVoltageV = 50.0,
         currentA = currentA,

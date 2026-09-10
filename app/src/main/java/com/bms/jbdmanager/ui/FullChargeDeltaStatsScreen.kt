@@ -53,12 +53,16 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
+//MARK:压差图样式
+//DeltaChartStyle 枚举压差图表的全部合法取值；新增状态时需要同步检查解析、存储和界面分支。
 private enum class DeltaChartStyle(val label: String) {
     Line("折线图"),
     Bar("柱状图")
 }
 
 @Composable
+//MARK:满充统计入口
+//FullChargeStatsDestination 绘制满充充电组件，并根据参数决定文案、数值、颜色及交互状态。
 internal fun FullChargeStatsDestination(
     state: BmsUiState,
     onLoadBatteryTrend: (BatteryTrendRange) -> Unit,
@@ -74,6 +78,8 @@ internal fun FullChargeStatsDestination(
 }
 
 @Composable
+//MARK:满充压差统计
+//FullChargeDeltaStatsPage 组织满充充电压差页面的完整页面结构，组合内容区和操作入口，并把事件交给状态持有层。
 internal fun FullChargeDeltaStatsPage(
     samples: List<FullChargeDeltaSample>,
     onLoad: () -> Unit
@@ -214,6 +220,8 @@ internal fun FullChargeDeltaStatsPage(
 }
 
 @Composable
+//MARK:图表样式
+//ChartStyleSelector 展示图表的可选入口，突出当前项并通过回调上报切换结果。
 private fun ChartStyleSelector(selected: DeltaChartStyle, onSelect: (DeltaChartStyle) -> Unit) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         DeltaChartStyle.entries.forEach { style ->
@@ -237,6 +245,8 @@ private fun ChartStyleSelector(selected: DeltaChartStyle, onSelect: (DeltaChartS
 }
 
 @Composable
+//MARK:统计指标卡
+//StatsMetric 绘制指标组件，并根据参数决定文案、数值、颜色及交互状态。
 private fun StatsMetric(label: String, value: String) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Text(label, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 10.sp)
@@ -245,6 +255,8 @@ private fun StatsMetric(label: String, value: String) {
 }
 
 @Composable
+//MARK:滚动统计图
+//ScrollableStatsChart 根据图表样本计算坐标和比例，并绘制趋势、柱形或进度信息。
 private fun ScrollableStatsChart(
     values: List<Double>,
     color: Color,
@@ -286,6 +298,8 @@ private fun ScrollableStatsChart(
 }
 
 @Composable
+//MARK:统计折线图
+//StatsLineChart 根据图表样本计算坐标和比例，并绘制趋势、柱形或进度信息。
 private fun StatsLineChart(
     values: List<Double>,
     color: Color,
@@ -313,6 +327,8 @@ private fun StatsLineChart(
 }
 
 @Composable
+//MARK:统计柱状图
+//StatsBarChart 根据图表样本计算坐标和比例，并绘制趋势、柱形或进度信息。
 private fun StatsBarChart(
     values: List<Double>,
     color: Color,
@@ -342,6 +358,8 @@ private fun StatsBarChart(
     }
 }
 
+//MARK:精简安时
+//按容量大小保留合适小数位、删除末尾零并追加 Ah 单位。
 private fun compactAh(value: Double): String {
     val formatted = "%.2f".format(Locale.US, value)
     return formatted.trimEnd('0').trimEnd('.').let { if (it == "-0") "0" else it }
@@ -349,11 +367,15 @@ private fun compactAh(value: Double): String {
 
 private val statsDateFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd")
 
+//MARK:格式化统计日
+//把满充压差样本时间转换为统计图使用的简短月日。
 private fun formatStatsDate(timestamp: Long): String =
     statsDateFormatter.format(Instant.ofEpochMilli(timestamp).atZone(ZoneId.systemDefault()))
 
 @Preview(name = "满充统计", showBackground = true, widthDp = 392, heightDp = 850)
 @Composable
+//MARK:满充压差预览
+//FullChargeDeltaStatsPreview 使用固定演示数据预览满充充电压差布局，只参与调试构建而不读取真实设备。
 private fun FullChargeDeltaStatsPreview() {
     JbdBmsTheme {
         Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {

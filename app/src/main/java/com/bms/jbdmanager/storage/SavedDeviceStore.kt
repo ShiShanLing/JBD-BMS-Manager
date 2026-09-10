@@ -3,15 +3,21 @@ package com.bms.jbdmanager.storage
 import android.content.Context
 import com.bms.jbdmanager.model.SavedDevice
 
+//MARK:设备保存快照
+//SavedDeviceSnapshot 将已保存设备快照相关字段组合为不可变值，避免跨层传递时出现部分字段不同步。
 internal data class SavedDeviceSnapshot(
     val lastAddress: String?,
     val lastName: String?,
     val devices: List<SavedDevice>
 )
 
+//MARK:设备存储
+//SavedDeviceStore 封装本地持久化、兼容解析和写回规则，用于处理已保存设备。
 internal class SavedDeviceStore(context: Context) {
     private val preferences = context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
 
+    //MARK:读取记录
+    //读取所有历史连接设备、最后设备及各自最近 SOC，并兼容早期只保存单个设备的格式。
     fun load(): SavedDeviceSnapshot {
         val lastAddress = preferences.getString(LAST_DEVICE_ADDRESS, null)
         val lastName = preferences.getString(LAST_DEVICE_NAME, null)
@@ -33,6 +39,8 @@ internal class SavedDeviceStore(context: Context) {
         return SavedDeviceSnapshot(lastAddress, lastName, devices)
     }
 
+    //MARK:保存状态
+    //按地址新增或更新设备名称和最近 SOC，同时把该地址设为下次自动连接目标。
     fun save(address: String, name: String, lastSocPercent: Int?): SavedDeviceSnapshot {
         val savedAddresses = preferences.getStringSet(SAVED_DEVICE_ADDRESSES, emptySet())
             .orEmpty()
@@ -48,6 +56,8 @@ internal class SavedDeviceStore(context: Context) {
         return load()
     }
 
+    //MARK:常量配置
+    //声明历史设备、最后设备、名称和 SOC 的存储键，兼容单设备旧格式与多设备新格式。
     private companion object {
         const val PREFERENCES_NAME = "jbd_bms_preferences"
         const val LAST_DEVICE_ADDRESS = "last_device_address"

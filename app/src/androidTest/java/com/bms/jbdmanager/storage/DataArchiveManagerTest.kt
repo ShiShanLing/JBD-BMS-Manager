@@ -15,10 +15,14 @@ import java.io.ByteArrayOutputStream
 import java.util.zip.ZipInputStream
 
 @RunWith(AndroidJUnit4::class)
+//MARK:测试数据
+//DataArchiveManagerTest 验证 DataArchiveManager 的正常流程、边界输入和需要长期保持的回归行为。
 class DataArchiveManagerTest {
     private val context = ApplicationProvider.getApplicationContext<android.content.Context>()
 
     @Before
+    //MARK:测试数据
+    //clearData 在每个用例执行前清理或建立隔离环境，防止本地残留数据影响断言。
     fun clearData() {
         context.deleteDatabase("battery_trends.db")
         listOf(
@@ -28,6 +32,8 @@ class DataArchiveManagerTest {
     }
 
     @Test
+    //MARK:测试备份趋势
+    //验证完整backup恢复偏好数据and趋势数据库场景的关键输出，防止后续修改破坏既有行为。
     fun completeBackupRestoresPreferencesAndTrendDatabase() {
         val store = BatteryTrendStore(context)
         val manager = DataArchiveManager(context, store)
@@ -65,6 +71,8 @@ class DataArchiveManagerTest {
     }
 
     @Test
+    //MARK:测CSV归档
+    //验证CSV压缩包包含独立证据数据表场景的关键输出，防止后续修改破坏既有行为。
     fun csvPackageContainsSeparateEvidenceTables() {
         val store = BatteryTrendStore(context)
         val manager = DataArchiveManager(context, store)
@@ -94,11 +102,15 @@ class DataArchiveManagerTest {
     }
 
     @Test(expected = IllegalArgumentException::class)
+    //MARK:测试恢复
+    //构造无效备份isrejected之前恢复场景，确认实现会拒绝无效输入或返回安全结果，而不是接受错误数据。
     fun invalidArchiveIsRejectedBeforeRestore() {
         val manager = DataArchiveManager(context, BatteryTrendStore(context))
         manager.prepareRestore(ByteArrayInputStream("not a backup".toByteArray()))
     }
 
+    //MARK:构造趋势采样
+    //构造指定时间和总压的趋势采样点，其他指标保持固定以便验证数据库行为。
     private fun point(timestamp: Long, voltage: Double) = BatteryTrendPoint(
         timestampMillis = timestamp,
         totalVoltageV = voltage,

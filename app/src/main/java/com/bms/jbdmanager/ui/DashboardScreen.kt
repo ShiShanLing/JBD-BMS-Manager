@@ -34,6 +34,8 @@ import com.bms.jbdmanager.model.DataFreshness
 import com.bms.jbdmanager.ui.theme.JbdBmsTheme
 
 @Composable
+//MARK:电池详情页
+//Dashboard 绘制详情主页组件，并根据参数决定文案、数值、颜色及交互状态。
 internal fun Dashboard(
     state: BmsUiState,
     onShowDevices: () -> Unit,
@@ -144,6 +146,8 @@ internal fun Dashboard(
     }
 }
 @Composable
+//MARK:设备摘要
+//DeviceSummary 绘制设备摘要组件，并根据参数决定文案、数值、颜色及交互状态。
 private fun DeviceSummary(
     state: BmsUiState,
     onShowDevices: () -> Unit,
@@ -206,6 +210,8 @@ private fun DeviceSummary(
 }
 
 @Composable
+//MARK:详情底部导航
+//DashboardBottomNavigation 展示详情主页的可选入口，突出当前项并通过回调上报切换结果。
 internal fun DashboardBottomNavigation(
     selected: Int,
     includeSettings: Boolean = false,
@@ -248,6 +254,8 @@ internal fun DashboardBottomNavigation(
 }
 
 @Composable
+//MARK:设备设置页
+//DeviceSettingsPage 组织设备设置页面的完整页面结构，组合内容区和操作入口，并把事件交给状态持有层。
 private fun DeviceSettingsPage(
     state: BmsUiState,
     onSubmitPassword: (String) -> Boolean,
@@ -358,6 +366,8 @@ private fun DeviceSettingsPage(
 }
 
 @Composable
+//MARK:弹框信息行
+//DialogInfoRow 在一行内排列弹框信息数据行的名称、数值和状态，统一对齐方式与间距。
 private fun DialogInfoRow(label: String, value: String) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
         Text(label, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp, modifier = Modifier.width(76.dp))
@@ -366,6 +376,8 @@ private fun DialogInfoRow(label: String, value: String) {
 }
 
 @Composable
+//MARK:详情页签选择
+//DashboardTabSelector 展示详情主页的可选入口，突出当前项并通过回调上报切换结果。
 internal fun DashboardTabSelector(selected: Int, labels: List<String>, onSelect: (Int) -> Unit) {
     Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 2.dp), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
         labels.forEachIndexed { index, label ->
@@ -383,6 +395,8 @@ internal fun DashboardTabSelector(selected: Int, labels: List<String>, onSelect:
 }
 
 @Composable
+//MARK:详情演示页
+//PreviewDashboard 使用固定演示数据预览详情主页布局，只参与调试构建而不读取真实设备。
 private fun PreviewDashboard(initialTab: Int, openFullChargeStats: Boolean = false) {
     JbdBmsTheme {
         Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
@@ -418,18 +432,24 @@ private fun PreviewDashboard(initialTab: Int, openFullChargeStats: Boolean = fal
 
 @Preview(name = "详情-概览", showBackground = true, widthDp = 392, heightDp = 850)
 @Composable
+//MARK:概览演示页
+//DashboardOverviewPreview 使用固定演示数据预览详情主页概览布局，只参与调试构建而不读取真实设备。
 private fun DashboardOverviewPreview() {
     PreviewDashboard(initialTab = 0)
 }
 
 @Preview(name = "详情-保护参数", showBackground = true, widthDp = 392, heightDp = 850)
 @Composable
+//MARK:保护参数预览
+//DashboardProtectionParamsPreview 使用固定演示数据预览详情主页保护参数布局，只参与调试构建而不读取真实设备。
 private fun DashboardProtectionParamsPreview() {
     PreviewDashboard(initialTab = 1)
 }
 
 @Preview(name = "详情-满充统计", showBackground = true, widthDp = 392, heightDp = 850)
 @Composable
+//MARK:满充统计预览
+//DashboardFullChargeStatsPreview 使用固定演示数据预览详情主页满充充电布局，只参与调试构建而不读取真实设备。
 private fun DashboardFullChargeStatsPreview() {
     PreviewDashboard(initialTab = 0, openFullChargeStats = true)
 }

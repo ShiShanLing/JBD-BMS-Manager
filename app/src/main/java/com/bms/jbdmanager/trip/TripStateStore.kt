@@ -3,14 +3,19 @@ package com.bms.jbdmanager.trip
 import android.content.Context
 import android.content.SharedPreferences
 import com.bms.jbdmanager.model.RangeTestState
+import com.bms.jbdmanager.model.RegenerationPeak
 import com.bms.jbdmanager.model.TripState
 import com.bms.jbdmanager.model.TripTrackingMode
 import com.bms.jbdmanager.model.defaultSpeedRangeStats
 
+//MARK:行程状态存储
+//TripStateStore 封装本地持久化、兼容解析和写回规则，用于处理行程状态。
 internal class TripStateStore(context: Context) {
     private val preferences: SharedPreferences =
         context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
 
+    //MARK:保存状态
+    //将活动行程、累计电量、续航测试和分速度样本一次性保存，供进程重启后恢复。
     fun save(value: TripState) {
         preferences.edit()
             .putBoolean("is_tracking", value.isTracking)
@@ -31,6 +36,10 @@ internal class TripStateStore(context: Context) {
             .putInt("mileage_countdown_target_km", value.mileageCountdownTargetKm)
             .putLong("mileage_countdown_reached_at", value.mileageCountdownReachedAtMillis ?: -1L)
             .putBoolean("mileage_countdown_acknowledged", value.mileageCountdownAcknowledged)
+            .putString("regen_current_a", value.maximumRegeneration?.currentA?.toString())
+            .putString("regen_power_w", value.maximumRegeneration?.powerW?.toString())
+            .putString("regen_speed_kmh", value.maximumRegeneration?.speedKmh?.toString())
+            .putLong("regen_recorded_at", value.maximumRegeneration?.recordedAtMillis ?: -1L)
             .putBoolean("range_active", value.rangeTest.isActive)
             .putInt("range_target_speed", value.rangeTest.targetSpeedKmh)
             .putInt("range_tolerance", value.rangeTest.speedToleranceKmh)
@@ -57,6 +66,8 @@ internal class TripStateStore(context: Context) {
     }
 
 
+    //MARK:读取记录
+    //读取上次保存的行程状态并逐字段恢复；缺失的新字段使用默认值以兼容旧版本。
     fun load(): TripState {
         if (!preferences.contains("started_at")) return TripState()
         return TripState(
@@ -86,6 +97,17 @@ internal class TripStateStore(context: Context) {
                 "mileage_countdown_acknowledged",
                 false
             ),
+            maximumRegeneration = preferences.getString("regen_power_w", null)
+                ?.toDoubleOrNull()
+                ?.takeIf { it > 0.0 }
+                ?.let { powerW ->
+                    RegenerationPeak(
+                        currentA = preferences.getString("regen_current_a", null)?.toDoubleOrNull() ?: 0.0,
+                        powerW = powerW,
+                        speedKmh = preferences.getString("regen_speed_kmh", null)?.toDoubleOrNull() ?: 0.0,
+                        recordedAtMillis = preferences.getLong("regen_recorded_at", -1L).takeIf { it >= 0L } ?: 0L
+                    )
+                },
             rangeTest = RangeTestState(
                 isActive = preferences.getBoolean("range_active", false),
                 targetSpeedKmh = preferences.getInt("range_target_speed", 40),
@@ -114,6 +136,8 @@ internal class TripStateStore(context: Context) {
     }
 
 
+    //MARK:常量配置
+    //集中声明行程状态的偏好文件名及字段键，键名变化时必须保留旧数据读取兼容。
     private companion object {
         const val PREFERENCES_NAME = "jbd_trip_tracking"
     }

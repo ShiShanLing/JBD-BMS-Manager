@@ -39,12 +39,16 @@ import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import kotlinx.coroutines.launch
 
+//MARK:应用主页面
+//MainActivity 承接应用入口、运行时权限、画中画、文件导出分享、APK 安装和一键退出生命周期。
 class MainActivity : ComponentActivity() {
     private val viewModel: BmsViewModel by viewModels()
     private var inPictureInPicture by mutableStateOf(false)
     private var minimizeOnPipClose = false
     private var allowActivityDestroy = false
     private val temperatureAlertAcknowledgedReceiver = object : BroadcastReceiver() {
+        //MARK:接收广播
+        //onReceive 接收onReceive回调，只同步当前生命周期仍然有效的状态和后续任务。
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action != TemperatureAlertNotifier.ACTION_ALERT_ACKNOWLEDGED) return
             viewModel.acknowledgeTemperatureSafetyAlert(
@@ -87,14 +91,18 @@ class MainActivity : ComponentActivity() {
 
     private var pendingInstallAfterPermission = false
 
+    //MARK:创建组件
+    //处理通知退出指令，初始化权限和画中画观察，注册温度确认广播并创建 Compose 页面。
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // 通知中的“一键退出”通过新 Intent 启动入口页；必须在创建 UI 前处理，避免退出时短暂闪现主界面。
         if (intent.getBooleanExtra(EXTRA_EXIT_ALL, false)) {
             viewModel.shutdownAll()
             allowActivityDestroy = true
             finishAndRemoveTask()
             return
         }
+        // 骑行查看数据期间保持屏幕常亮；该标志只在本 Activity 可见时生效，不会永久修改系统设置。
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         enableEdgeToEdge()
         inPictureInPicture = isInPictureInPictureMode
@@ -169,6 +177,8 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    //MARK:恢复页面
+    //onResume 页面重新进入前台时刷新权限和系统状态，处理此前等待继续的操作。
     override fun onResume() {
         super.onResume()
         viewModel.setPermissionsGranted(hasBluetoothPermissions())
@@ -180,16 +190,23 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    //MARK:页面停止
+    //onStop 页面离开前台时保存最后一次有效状态，再交由系统继续生命周期切换。
     override fun onStop() {
+        // Activity 进入后台、锁屏或画中画切换前均刷新最后状态，避免进程随后被系统回收而丢失快照。
         viewModel.saveLastSnapshot()
         super.onStop()
     }
 
+    //MARK:销毁组件
+    //onDestroy 解除系统监听并释放后台任务或资源，防止组件销毁后继续收到回调。
     override fun onDestroy() {
         runCatching { unregisterReceiver(temperatureAlertAcknowledgedReceiver) }
         super.onDestroy()
     }
 
+    //MARK:画中画变化
+    //onPictureInPictureModeChanged 接收onPictureInPictureModeChanged回调，只同步当前生命周期仍然有效的状态和后续任务。
     override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean, newConfig: Configuration) {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
         inPictureInPicture = isInPictureInPictureMode
@@ -206,8 +223,11 @@ class MainActivity : ComponentActivity() {
         )
     }
 
+    //MARK:结束行程
+    //finish 结束当前行程，先归档完整累计数据，再停止实时速度和续航测试状态。
     override fun finish() {
         if (!allowActivityDestroy && minimizeOnPipClose) {
+            // 用户关闭画中画时只把任务移到后台，让蓝牙与 GPS 前台服务继续；明确退出才销毁任务。
             minimizeOnPipClose = false
             inPictureInPicture = false
             moveTaskToBack(true)
@@ -216,6 +236,8 @@ class MainActivity : ComponentActivity() {
         super.finish()
     }
 
+    //MARK:观察画中画
+    //observePictureInPictureEligibility 在页面可见期间观察 BMS 状态，并持续更新系统画中画自动进入条件。
     private fun observePictureInPictureEligibility() {
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -228,6 +250,8 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    //MARK:进入画中画
+    //enterPictureInPictureFromUi 确认设备支持画中画后，以 16:9 参数主动进入骑行小窗口。
     private fun enterPictureInPictureFromUi() {
         if (!packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)) return
         try {
@@ -236,10 +260,15 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    //MARK:判断画中画
+    //isPictureInPictureEligible 仅在已有真实 BMS 数据或纯 GPS 行程运行时允许进入画中画。
     private fun isPictureInPictureEligible(state: BmsUiState): Boolean =
+        // 有真实 BMS 数据或正在进行纯 GPS 行程时才允许小窗，扫描页和空白详情不自动进入。
         (state.phase == ConnectionPhase.Ready && state.basicInfo != null) ||
             (state.trip.isTracking && state.trip.isMileageOnly)
 
+    //MARK:更新更新参数
+    //updatePictureInPictureParams 把当前是否允许自动进入画中画写入 Activity 参数，并忽略结束阶段的系统异常。
     private fun updatePictureInPictureParams(enabled: Boolean) {
         if (!packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)) return
         try {
@@ -249,12 +278,16 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    //MARK:画中画参数
+    //pictureInPictureParams 创建固定 16:9 比例和指定自动进入状态的画中画参数。
     private fun pictureInPictureParams(autoEnter: Boolean): PictureInPictureParams =
         PictureInPictureParams.Builder()
             .setAspectRatio(Rational(16, 9))
             .setAutoEnterEnabled(autoEnter)
             .build()
 
+    //MARK:处理指令
+    //onNewIntent 处理复用现有 Activity 时收到的新指令，例如通知触发的一键退出。
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
@@ -265,13 +298,19 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    //MARK:判断蓝牙
+    //hasBluetoothPermissions 同时检查附近设备扫描与连接权限，二者都授予才返回 true。
     private fun hasBluetoothPermissions(): Boolean =
         ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN) == PackageManager.PERMISSION_GRANTED &&
             ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED
 
+    //MARK:判断定位
+    //hasPreciseLocationPermission 检查精确定位权限；仅有粗略定位不足以参与行程累计。
     private fun hasPreciseLocationPermission(): Boolean =
         ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
 
+    //MARK:刷新温度
+    //refreshTemperatureEmergencyPermissions 重新读取全屏 Intent 与悬浮窗授权并同步到 ViewModel。
     private fun refreshTemperatureEmergencyPermissions() {
         val fullScreenGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             getSystemService(NotificationManager::class.java).canUseFullScreenIntent()
@@ -284,6 +323,8 @@ class MainActivity : ComponentActivity() {
         )
     }
 
+    //MARK:请求满充温度
+    //requestFullScreenTemperaturePermission 打开系统全屏警报专用授权页面；旧系统无需此单独权限。
     private fun requestFullScreenTemperaturePermission() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             refreshTemperatureEmergencyPermissions()
@@ -299,6 +340,8 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    //MARK:请求温度
+    //requestOverlayTemperaturePermission 打开本应用悬浮窗授权页面，作为全屏警报不可用时的危险提醒备选。
     private fun requestOverlayTemperaturePermission() {
         runCatching {
             startActivity(
@@ -310,6 +353,8 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    //MARK:安装更新
+    //installApk 通过 FileProvider 暴露已下载 APK 并启动系统安装器；缺少来源权限时先引导授权。
     private fun installApk(path: String) {
         val apk = File(path).takeIf { it.isFile } ?: return
         val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", apk)
@@ -331,6 +376,8 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    //MARK:分享健康报告
+    //shareHealthPdf 通过 FileProvider 生成只读 PDF URI，并打开系统分享面板。
     private fun shareHealthPdf(path: String) {
         val report = File(path).takeIf { it.isFile } ?: return
         val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", report)
@@ -345,9 +392,13 @@ class MainActivity : ComponentActivity() {
         )
     }
 
+    //MARK:常量配置
+    //声明一键退出 Intent 参数和导出文件名时间格式，供通知与文件选择器共同使用。
     companion object {
         const val EXTRA_EXIT_ALL = "com.bms.jbdmanager.EXIT_ALL"
         private val archiveTimeFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyyMMdd_HHmm")
+        //MARK:计算归档时间
+        //archiveTimestamp 生成适合文件名的当前时间文本，用于区分每次备份和数据导出。
         private fun archiveTimestamp(): String = LocalDateTime.now().format(archiveTimeFormatter)
     }
 }

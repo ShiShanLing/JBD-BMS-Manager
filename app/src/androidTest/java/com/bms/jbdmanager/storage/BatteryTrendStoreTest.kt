@@ -12,15 +12,21 @@ import org.junit.Test
 import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
+//MARK:测试电池趋势
+//BatteryTrendStoreTest 验证 BatteryTrendStore 的正常流程、边界输入和需要长期保持的回归行为。
 class BatteryTrendStoreTest {
     private val context = ApplicationProvider.getApplicationContext<android.content.Context>()
 
     @Before
+    //MARK:清测试数据库
+    //clearDatabase 在每个用例执行前清理或建立隔离环境，防止本地残留数据影响断言。
     fun clearDatabase() {
         context.deleteDatabase("battery_trends.db")
     }
 
     @Test
+    //MARK:测试设备时间
+    //验证样本areseparatedbydeviceandreturnedin时间order场景的关键输出，防止后续修改破坏既有行为。
     fun samplesAreSeparatedByDeviceAndReturnedInTimeOrder() {
         val store = BatteryTrendStore(context)
         val now = System.currentTimeMillis()
@@ -36,6 +42,8 @@ class BatteryTrendStoreTest {
     }
 
     @Test
+    //MARK:测试满充充电
+    //验证满充充电fingerprint保持highestpack电压forday场景的关键输出，防止后续修改破坏既有行为。
     fun fullChargeFingerprintKeepsHighestPackVoltageForDay() {
         val store = BatteryTrendStore(context)
         val cells = CellSummary(listOf(3490, 3492, 3488))
@@ -51,6 +59,8 @@ class BatteryTrendStoreTest {
     }
 
     @Test
+    //MARK:测试满充电池
+    //验证non满充batterydoesnotcreatefingerprint场景的关键输出，防止后续修改破坏既有行为。
     fun nonFullBatteryDoesNotCreateFingerprint() {
         val store = BatteryTrendStore(context)
         store.recordFullChargeFingerprint("AA", info(53.0, soc = 90), CellSummary(listOf(3310, 3312)))
@@ -58,6 +68,8 @@ class BatteryTrendStoreTest {
     }
 
     @Test
+    //MARK:测试样本摘要
+    //验证veryolddetailedsamplebecomespermanent每日summary之前cleanup场景的关键输出，防止后续修改破坏既有行为。
     fun veryOldDetailedSampleBecomesPermanentDailySummaryBeforeCleanup() {
         val store = BatteryTrendStore(context)
         val now = System.currentTimeMillis()
@@ -80,6 +92,8 @@ class BatteryTrendStoreTest {
     }
 
     @Test
+    //MARK:测试压差满充
+    //验证满充充电压差记录near满充socorahanddebouncesreconnects场景的关键输出，防止后续修改破坏既有行为。
     fun fullChargeDeltaRecordsNearFullSocOrAhAndDebouncesReconnects() {
         val store = BatteryTrendStore(context)
         val now = 1_700_000_000_000L
@@ -105,6 +119,8 @@ class BatteryTrendStoreTest {
         assertTrue(store.loadFullChargeDeltas("BB").isEmpty())
     }
 
+    //MARK:构造趋势采样
+    //构造指定时间和总压的趋势采样点，其他指标保持固定以便验证数据库行为。
     private fun point(time: Long, voltage: Double) = BatteryTrendPoint(
         timestampMillis = time,
         totalVoltageV = voltage,
@@ -115,6 +131,8 @@ class BatteryTrendStoreTest {
         minimumCellMv = 3275.0
     )
 
+    //MARK:构造电池信息
+    //构造带指定关键字段的 BMS 基本信息，其他字段使用稳定默认值以突出当前断言。
     private fun info(voltage: Double, soc: Int = 100, remainingAh: Double? = null) = BmsBasicInfo(
         totalVoltageV = voltage,
         currentA = 0.2,

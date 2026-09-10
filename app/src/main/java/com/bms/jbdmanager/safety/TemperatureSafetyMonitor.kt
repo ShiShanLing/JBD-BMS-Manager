@@ -7,8 +7,14 @@ import com.bms.jbdmanager.model.TemperatureMonitorUpdate
 import com.bms.jbdmanager.model.TemperatureSafetyAlert
 import kotlin.math.min
 
+//MARK:温度安全监控
+//TemperatureSafetyMonitor 维护安全采样窗口、阈值判断和恢复条件，用于处理温度安全。
 internal class TemperatureSafetyMonitor {
+    //MARK:温升窗口
+    //RiseWindow 定义一个升温检测窗口的总时长和允许参与计算的最小实际样本跨度。
     private data class RiseWindow(val seconds: Int, val minimumSpanSeconds: Int)
+    //MARK:温升观测值
+    //RiseObservation 保存某个时间窗计算出的每分钟升温速率，供警报选择最快变化证据。
     private data class RiseObservation(val windowSeconds: Int, val rateCPerMinute: Double)
 
     private val samples = ArrayDeque<Pair<Long, Double>>()
@@ -17,6 +23,8 @@ internal class TemperatureSafetyMonitor {
     private var criticalMatches = 0
     private var recoveryMatches = 0
 
+    //MARK:更新状态
+    //加入最新最高温度样本，结合 BMS 阈值、保护位及多时间窗升温率，返回新警报或恢复事件。
     fun update(
         info: BmsBasicInfo,
         protectionParams: JbdProtectionParams?,
@@ -25,12 +33,14 @@ internal class TemperatureSafetyMonitor {
         val maximumTemperatureC = info.temperaturesC
             .filter { it in MIN_VALID_TEMPERATURE_C..MAX_VALID_TEMPERATURE_C }
             .maxOrNull() ?: return TemperatureMonitorUpdate()
+        // 只保留最近一分钟样本；10、30、60 秒升温窗口都从同一队列计算，避免多个计时器产生偏差。
         samples.addLast(nowMillis to maximumTemperatureC)
         while (samples.isNotEmpty() && nowMillis - samples.first().first > SAMPLE_WINDOW_MS) {
             samples.removeFirst()
         }
 
         val configuredLimit = when {
+            // 大于 7A 视为明确充电；微小正电流可能是回收电流，静置时采用充放电阈值中更保守者。
             info.currentA > 7.0 -> protectionParams?.chargeHighTempC
             info.currentA < -0.05 -> protectionParams?.dischargeHighTempC
             else -> listOfNotNull(
@@ -39,6 +49,7 @@ internal class TemperatureSafetyMonitor {
             ).minOrNull()
         }
         val criticalThresholdC = min(configuredLimit ?: DEFAULT_CRITICAL_C, MAX_CRITICAL_C)
+        // 即使 BMS 被设置成更高保护温度，App 危险阈值也不超过 60℃，保留独立安全兜底。
         val warningThresholdC = (criticalThresholdC - WARNING_MARGIN_C).coerceAtLeast(MIN_WARNING_C)
         val riseObservations = riseObservations(nowMillis, maximumTemperatureC)
         val fastestRise = riseObservations.maxByOrNull { it.rateCPerMinute }
@@ -58,6 +69,7 @@ internal class TemperatureSafetyMonitor {
 
         criticalMatches = if (critical) criticalMatches + 1 else 0
         warningMatches = if (warning) warningMatches + 1 else 0
+        // 普通温升需连续命中多个样本才报警，过滤单个探头毛刺；BMS 已保护时则立即按危险处理。
         val requestedLevel = when {
             bmsHighTemperatureProtection || criticalMatches >= CRITICAL_CONFIRM_SAMPLES -> TemperatureAlertLevel.Critical
             warningMatches >= WARNING_CONFIRM_SAMPLES -> TemperatureAlertLevel.Warning
@@ -65,6 +77,7 @@ internal class TemperatureSafetyMonitor {
         }
 
         if (requestedLevel != null && requestedLevel != activeLevel) {
+            // 同一等级只派发一次；危险状态回落到警告时不重复弹框，必须完成恢复确认后才能再次报警。
             if (activeLevel == TemperatureAlertLevel.Critical && requestedLevel == TemperatureAlertLevel.Warning) {
                 return TemperatureMonitorUpdate()
             }
@@ -112,6 +125,7 @@ internal class TemperatureSafetyMonitor {
             !bmsHighTemperatureProtection &&
             maximumTemperatureC <= warningThresholdC - RECOVERY_MARGIN_C
         recoveryMatches = if (recovered) recoveryMatches + 1 else 0
+        // 恢复阈值比警告阈值再低 3℃并要求连续确认，形成滞回，防止临界温度反复报警。
         if (recoveryMatches >= RECOVERY_CONFIRM_SAMPLES) {
             reset(clearSamples = false)
             return TemperatureMonitorUpdate(recovered = true)
@@ -119,6 +133,8 @@ internal class TemperatureSafetyMonitor {
         return TemperatureMonitorUpdate()
     }
 
+    //MARK:重置状态
+    //reset 清空该组件维护的临时采样和累计状态，为下一次独立会话重新建立基线。
     fun reset(clearSamples: Boolean = true) {
         activeLevel = null
         warningMatches = 0
@@ -127,11 +143,14 @@ internal class TemperatureSafetyMonitor {
         if (clearSamples) samples.clear()
     }
 
+    //MARK:计算温升
+    //riseObservations 分别计算近 10、30、60 秒有效跨度内的升温速率，跨度不足时不进行外推。
     private fun riseObservations(
         nowMillis: Long,
         currentTemperatureC: Double
     ): List<RiseObservation> = RISE_WINDOWS.mapNotNull { window ->
         val earliestAllowedMillis = nowMillis - window.seconds * 1_000L
+        // 选择窗口内最早样本；样本跨度不足时不外推一分钟升温率，避免刚连接时夸大短时波动。
         val reference = samples.firstOrNull { it.first >= earliestAllowedMillis } ?: return@mapNotNull null
         val elapsedMillis = nowMillis - reference.first
         if (elapsedMillis < window.minimumSpanSeconds * 1_000L) return@mapNotNull null
@@ -141,8 +160,12 @@ internal class TemperatureSafetyMonitor {
         )
     }
 
+    //MARK:格式化温度
+    //formatTemperature 把温度或升温速度固定为一位小数，保持警报正文数值格式一致。
     private fun formatTemperature(value: Double): String = "%.1f".format(value)
 
+    //MARK:常量配置
+    //集中定义有效温区、警告与危险阈值、升温速率、多窗口跨度及连续确认和恢复次数。
     private companion object {
         const val MIN_VALID_TEMPERATURE_C = -40.0
         const val MAX_VALID_TEMPERATURE_C = 120.0

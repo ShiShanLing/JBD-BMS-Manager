@@ -9,8 +9,12 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
+//MARK:测试温度安全
+//TemperatureSafetyMonitorTest 验证 TemperatureSafetyMonitor 的正常流程、边界输入和需要长期保持的回归行为。
 class TemperatureSafetyMonitorTest {
     @Test
+    //MARK:测试温度
+    //验证警告需要repeated大温度样本场景的关键输出，防止后续修改破坏既有行为。
     fun warningRequiresRepeatedHighTemperatureSamples() {
         val monitor = TemperatureSafetyMonitor()
         val params = JbdProtectionParams(dischargeHighTempC = 60.0)
@@ -24,6 +28,8 @@ class TemperatureSafetyMonitorTest {
     }
 
     @Test
+    //MARK:测试温度警报
+    //验证single温度spikedoesnottriggeralert场景的关键输出，防止后续修改破坏既有行为。
     fun singleTemperatureSpikeDoesNotTriggerAlert() {
         val monitor = TemperatureSafetyMonitor()
 
@@ -32,6 +38,8 @@ class TemperatureSafetyMonitorTest {
     }
 
     @Test
+    //MARK:测试温度保护
+    //验证bms大温度保护triggers危险immediately场景的关键输出，防止后续修改破坏既有行为。
     fun bmsHighTemperatureProtectionTriggersCriticalImmediately() {
         val monitor = TemperatureSafetyMonitor()
 
@@ -46,6 +54,8 @@ class TemperatureSafetyMonitorTest {
     }
 
     @Test
+    //MARK:测试警报温度
+    //验证alert清除onlyafter温度staysbelow恢复threshold场景的关键输出，防止后续修改破坏既有行为。
     fun alertClearsOnlyAfterTemperatureStaysBelowRecoveryThreshold() {
         val monitor = TemperatureSafetyMonitor()
         repeat(3) { index -> monitor.update(info(55.0), null, 1_000L + index * 1_000L) }
@@ -57,6 +67,8 @@ class TemperatureSafetyMonitorTest {
     }
 
     @Test
+    //MARK:测试十秒温升
+    //验证tensecond窗口detects快速升温withoutsixtyseconddilution场景的关键输出，防止后续修改破坏既有行为。
     fun tenSecondWindowDetectsRapidRiseWithoutSixtySecondDilution() {
         val monitor = TemperatureSafetyMonitor()
         monitor.update(info(40.0), null, 0L)
@@ -73,6 +85,8 @@ class TemperatureSafetyMonitorTest {
     }
 
     @Test
+    //MARK:测试短时温升
+    //验证升温shorterthanminimum窗口doesnottriggeronitsown场景的关键输出，防止后续修改破坏既有行为。
     fun riseShorterThanMinimumWindowDoesNotTriggerOnItsOwn() {
         val monitor = TemperatureSafetyMonitor()
         monitor.update(info(43.0), null, 1_000L)
@@ -81,6 +95,8 @@ class TemperatureSafetyMonitorTest {
         assertNull(monitor.update(info(46.5), null, 7_000L).alert)
     }
 
+    //MARK:构造电池信息
+    //构造带指定关键字段的 BMS 基本信息，其他字段使用稳定默认值以突出当前断言。
     private fun info(maximumTemperatureC: Double, protectionMask: Int = 0) = BmsBasicInfo(
         totalVoltageV = 52.0,
         currentA = -15.0,

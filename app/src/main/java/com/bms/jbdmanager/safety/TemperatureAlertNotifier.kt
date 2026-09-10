@@ -20,6 +20,8 @@ import com.bms.jbdmanager.TemperatureEmergencyActivity
 import com.bms.jbdmanager.model.TemperatureAlertLevel
 import com.bms.jbdmanager.model.TemperatureSafetyAlert
 
+//MARK:温度警报
+//TemperatureAlertNotifier 协调系统通知、全屏警报与悬浮窗展示，用于处理温度警报。
 internal class TemperatureAlertNotifier(private val context: Context) {
     init {
         val manager = context.getSystemService(NotificationManager::class.java)
@@ -44,6 +46,8 @@ internal class TemperatureAlertNotifier(private val context: Context) {
     }
 
     @SuppressLint("MissingPermission")
+    //MARK:显示警报
+    //危险告警优先请求全屏通知；无全屏权限时退回系统悬浮层，并始终在允许时保留高优先级通知。
     fun show(alert: TemperatureSafetyAlert): Boolean {
         val critical = alert.level == TemperatureAlertLevel.Critical
         val showFullScreen = critical && canPostNotifications() && canUseFullScreenAlert()
@@ -108,11 +112,15 @@ internal class TemperatureAlertNotifier(private val context: Context) {
         return showFullScreen || showOverlay
     }
 
+    //MARK:取消操作
+    //cancel 关闭或确认cancel并清理去重状态，避免同一警报被重复展示。
     fun cancel() {
         NotificationManagerCompat.from(context).cancel(NOTIFICATION_ID)
         TemperatureEmergencyOverlay.dismiss()
     }
 
+    //MARK:确认警报
+    //acknowledge 记录用户已经知晓本次危险警报，广播告警 ID 后关闭当前全屏页面。
     fun acknowledge(alertId: Long) {
         TemperatureEmergencyOverlay.dismiss()
         context.sendBroadcast(
@@ -122,10 +130,14 @@ internal class TemperatureAlertNotifier(private val context: Context) {
         )
     }
 
+    //MARK:关闭危险警报
+    //dismissEmergencySurface 关闭或确认紧急警报并清理去重状态，避免同一警报被重复展示。
     fun dismissEmergencySurface() {
         TemperatureEmergencyOverlay.dismiss()
     }
 
+    //MARK:全屏警报
+    //fullScreenAlertIntent 构建红色温度危险页面 Intent，并携带标题、正文、温度和告警 ID。
     private fun fullScreenAlertIntent(alert: TemperatureSafetyAlert): Intent =
         TemperatureEmergencyActivity.intent(
             context,
@@ -135,15 +147,21 @@ internal class TemperatureAlertNotifier(private val context: Context) {
             alert.id
         )
 
+    //MARK:检查通知权
+    //canPostNotifications 检查当前 Android 版本是否需要通知权限以及权限是否已经授予。
     private fun canPostNotifications(): Boolean =
         Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
             ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) ==
             PackageManager.PERMISSION_GRANTED
 
+    //MARK:检查全屏权
+    //canUseFullScreenAlert 检查系统是否允许该应用发送全屏 Intent，兼容 Android 14 的专用授权开关。
     private fun canUseFullScreenAlert(): Boolean =
         Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE ||
             context.getSystemService(NotificationManager::class.java).canUseFullScreenIntent()
 
+    //MARK:常量配置
+    //声明温度警报通知渠道、固定通知 ID、确认广播动作及跨组件传递告警 ID 的键。
     companion object {
         const val ACTION_ALERT_ACKNOWLEDGED = "com.bms.jbdmanager.TEMPERATURE_ALERT_ACKNOWLEDGED"
         const val EXTRA_ALERT_ID = "temperature_alert_id"

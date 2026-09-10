@@ -26,6 +26,8 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 @Composable
+//MARK:末次状态页
+//LastSnapshotScreen 组织最后一次快照页面的完整页面结构，组合内容区和操作入口，并把事件交给状态持有层。
 internal fun LastSnapshotScreen(
     snapshot: LastBmsSnapshot,
     capacityHealthRecords: List<CapacityHealthRecord>,
@@ -132,6 +134,8 @@ internal fun LastSnapshotScreen(
 
 private val snapshotTimeFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
 
+//MARK:格式化快照时
+//formatSnapshotTime 将快照时间转换为适合当前页面展示的文本，并统一精度、单位或正负号格式。
 private fun formatSnapshotTime(millis: Long): String = Instant.ofEpochMilli(millis)
     .atZone(ZoneId.systemDefault())
     .format(snapshotTimeFormatter)

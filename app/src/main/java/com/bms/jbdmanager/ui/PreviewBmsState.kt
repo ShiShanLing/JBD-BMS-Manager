@@ -19,6 +19,7 @@ import com.bms.jbdmanager.model.LastBmsSnapshot
 import com.bms.jbdmanager.model.MileageHistoryState
 import com.bms.jbdmanager.model.ProtectionEvent
 import com.bms.jbdmanager.model.ProtectionEventSeverity
+import com.bms.jbdmanager.model.RegenerationPeak
 import com.bms.jbdmanager.model.TripSessionRecord
 import com.bms.jbdmanager.update.AppUpdateState
 import java.time.DayOfWeek
@@ -26,15 +27,21 @@ import java.time.LocalDate
 import java.time.ZoneId
 import java.time.temporal.TemporalAdjusters
 
+//MARK:演示场景
+//DemoPreviewScenario 枚举DemoPreviewScenario的全部合法取值；新增状态时需要同步检查解析、存储和界面分支。
 internal enum class DemoPreviewScenario {
     Charging,
     Riding,
     Regen,
     Idle;
 
+    //MARK:切换场景
+    //next 按固定顺序切换演示页面的静置、充电和放电状态，便于逐一检查颜色与布局。
     fun next(): DemoPreviewScenario = entries[(ordinal + 1) % entries.size]
 }
 
+//MARK:演示状态
+//demoBmsState 绘制状态组件，并根据参数决定文案、数值、颜色及交互状态。
 internal fun demoBmsState(
     appUpdate: AppUpdateState = AppUpdateState(
         currentVersionName = "0.5.6",
@@ -43,6 +50,8 @@ internal fun demoBmsState(
     scenario: DemoPreviewScenario = DemoPreviewScenario.Charging
 ): BmsUiState = applyDemoScenario(baseDemoBmsState(appUpdate), scenario)
 
+//MARK:演示末次快照
+//demoLastSnapshot 绘制最后一次快照组件，并根据参数决定文案、数值、颜色及交互状态。
 internal fun demoLastSnapshot(state: BmsUiState = demoBmsState()): LastBmsSnapshot {
     val info = requireNotNull(state.basicInfo)
     return LastBmsSnapshot(
@@ -62,6 +71,8 @@ internal fun demoLastSnapshot(state: BmsUiState = demoBmsState()): LastBmsSnapsh
     )
 }
 
+//MARK:基础演示状态
+//baseDemoBmsState 绘制状态组件，并根据参数决定文案、数值、颜色及交互状态。
 private fun baseDemoBmsState(appUpdate: AppUpdateState): BmsUiState {
     val now = System.currentTimeMillis()
     return BmsUiState(
@@ -149,6 +160,12 @@ private fun baseDemoBmsState(appUpdate: AppUpdateState): BmsUiState {
             validLocationPoints = 860,
             lastLocationAtMillis = now,
             gpsMessage = "GPS 行程记录中",
+            maximumRegeneration = RegenerationPeak(
+                currentA = 18.7,
+                powerW = 1_041.6,
+                speedKmh = 42.6,
+                recordedAtMillis = now - 420_000
+            ),
             speedRangeStats = defaultSpeedRangeStats().map { stats ->
                 when (stats.targetSpeedKmh) {
                     35 -> SpeedRangeStats(35, 8_200.0, 840.0, 2.6, 138.0)
@@ -247,6 +264,8 @@ private fun baseDemoBmsState(appUpdate: AppUpdateState): BmsUiState {
     )
 }
 
+//MARK:应用演示场景
+//applyDemoScenario 把选定演示场景应用到基础假数据，覆盖电流、MOS 和状态文案而不影响真实数据。
 private fun applyDemoScenario(state: BmsUiState, scenario: DemoPreviewScenario): BmsUiState {
     val info = state.basicInfo ?: return state
     return when (scenario) {
@@ -306,6 +325,8 @@ private fun applyDemoScenario(state: BmsUiState, scenario: DemoPreviewScenario):
     }
 }
 
+//MARK:演示里程历史
+//demoMileageHistory 绘制里程历史组件，并根据参数决定文案、数值、颜色及交互状态。
 private fun demoMileageHistory(): MileageHistoryState {
     val zone = ZoneId.systemDefault()
     val today = LocalDate.now()
@@ -319,7 +340,13 @@ private fun demoMileageHistory(): MileageHistoryState {
             finishedAtMillis = start + 3_600_000,
             distanceMeters = 299_000.0,
             consumedAh = 12.0,
-            consumedWh = 620.0
+            consumedWh = 620.0,
+            maximumRegeneration = RegenerationPeak(
+                currentA = 21.4,
+                powerW = 1_193.0,
+                speedKmh = 48.2,
+                recordedAtMillis = start + 1_800_000
+            )
         )
     }
     val yearlySessions = listOf(2024, 2025).map { year ->

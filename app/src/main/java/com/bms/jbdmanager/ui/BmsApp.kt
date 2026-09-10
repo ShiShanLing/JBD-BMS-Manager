@@ -26,6 +26,8 @@ import com.bms.jbdmanager.model.ConnectionPhase
 import com.bms.jbdmanager.model.TemperatureAlertLevel
 
 @Composable
+//MARK:应用入口
+//BmsApp 绘制应用组件，并根据参数决定文案、数值、颜色及交互状态。
 fun BmsApp(
     viewModel: BmsViewModel,
     exitApp: () -> Unit,

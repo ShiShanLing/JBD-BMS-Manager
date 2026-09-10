@@ -4,8 +4,53 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
 
+//MARK:测试行程状态
+//TripStateTest 验证 TripState 的正常流程、边界输入和需要长期保持的回归行为。
 class TripStateTest {
     @Test
+    //MARK:测试回收峰值
+    //车辆正在行驶且 GPS 数据新鲜时，正电流应记录为包含电流、功率、速度和时间的回收峰值。
+    fun movingPositiveCurrentCreatesRegenerationPeak() {
+        val peak = updatedRegenerationPeak(
+            existing = null,
+            totalVoltageV = 56.0,
+            currentA = 20.0,
+            speedKmh = 42.5,
+            lastLocationAtMillis = 9_000L,
+            nowMillis = 10_000L
+        )
+
+        assertEquals(20.0, peak!!.currentA, 0.0001)
+        assertEquals(1_120.0, peak.powerW, 0.0001)
+        assertEquals(42.5, peak.speedKmh, 0.0001)
+        assertEquals(10_000L, peak.recordedAtMillis)
+    }
+
+    @Test
+    //MARK:测试回收过滤
+    //静止、微小电流或过期 GPS 都不能被当作动能回收，避免把充电器电流和噪声写入历史。
+    fun stationaryOrStaleSamplesDoNotCreateRegenerationPeak() {
+        assertNull(updatedRegenerationPeak(null, 56.0, 20.0, 0.0, 9_000L, 10_000L))
+        assertNull(updatedRegenerationPeak(null, 56.0, 0.2, 35.0, 9_000L, 10_000L))
+        assertNull(updatedRegenerationPeak(null, 56.0, 20.0, 35.0, 1_000L, 10_000L))
+    }
+
+    @Test
+    //MARK:测试峰值替换
+    //新样本只有在回收功率更高时才覆盖旧峰值，确保一次行程始终保留真正的最高记录。
+    fun regenerationPeakOnlyChangesForHigherPower() {
+        val original = RegenerationPeak(18.0, 1_000.0, 40.0, 1_000L)
+        val lower = updatedRegenerationPeak(original, 55.0, 17.0, 42.0, 1_900L, 2_000L)
+        val higher = updatedRegenerationPeak(original, 56.0, 20.0, 38.0, 2_900L, 3_000L)
+
+        assertEquals(original, lower)
+        assertEquals(1_120.0, higher!!.powerW, 0.0001)
+        assertEquals(3_000L, higher.recordedAtMillis)
+    }
+
+    @Test
+    //MARK:测试续航行程
+    //验证计算consumptionandremaining续航from行程样本的计算或判断结果与给定输入一致。
     fun calculatesConsumptionAndRemainingRangeFromTripSamples() {
         val trip = TripState(
             distanceMeters = 20_000.0,
@@ -26,6 +71,8 @@ class TripStateTest {
     }
 
     @Test
+    //MARK:测试续航数据
+    //验证hides续航估算untilthereisenough数据场景的关键输出，防止后续修改破坏既有行为。
     fun hidesRangeEstimateUntilThereIsEnoughData() {
         val trip = TripState(
             distanceMeters = 400.0,
@@ -40,6 +87,8 @@ class TripStateTest {
     }
 
     @Test
+    //MARK:测试里程电池
+    //验证里程only行程保持里程withoutproducingbatteryestimates场景的关键输出，防止后续修改破坏既有行为。
     fun mileageOnlyTripKeepsMileageWithoutProducingBatteryEstimates() {
         val trip = TripState(
             isTracking = true,
@@ -60,6 +109,8 @@ class TripStateTest {
     }
 
     @Test
+    //MARK:测试程倒计时
+    //验证里程countdownremainingpercenttracks距离andstopsat零值场景的关键输出，防止后续修改破坏既有行为。
     fun mileageCountdownRemainingPercentTracksDistanceAndStopsAtZero() {
         assertEquals(
             100,
@@ -82,6 +133,8 @@ class TripStateTest {
     }
 
     @Test
+    //MARK:测试程倒计时
+    //验证里程countdowntriggersoncewhentargetisreached场景的关键输出，防止后续修改破坏既有行为。
     fun mileageCountdownTriggersOnceWhenTargetIsReached() {
         assertNull(
             resolveMileageCountdownReachedAt(
@@ -115,6 +168,8 @@ class TripStateTest {
     }
 
     @Test
+    //MARK:测试续航测试
+    //验证续航测试计算onlyitsindependenteffective样本场景的关键输出，防止后续修改破坏既有行为。
     fun rangeTestCalculatesOnlyItsIndependentEffectiveSamples() {
         val test = RangeTestState(
             targetSpeedKmh = 40,
@@ -135,6 +190,8 @@ class TripStateTest {
     }
 
     @Test
+    //MARK:测试自动速度
+    //验证自动速度rangesdonotoverlapfornormal样本场景的关键输出，防止后续修改破坏既有行为。
     fun automaticSpeedRangesDoNotOverlapForNormalSamples() {
         val ranges = defaultSpeedRangeStats()
 
@@ -146,6 +203,8 @@ class TripStateTest {
     }
 
     @Test
+    //MARK:测试速度续航
+    //验证自动速度续航producesindependent估算场景的关键输出，防止后续修改破坏既有行为。
     fun automaticSpeedRangeProducesIndependentEstimate() {
         val stats = SpeedRangeStats(
             targetSpeedKmh = 45,
@@ -162,6 +221,8 @@ class TripStateTest {
     }
 
     @Test
+    //MARK:测试速度
+    //验证historical估算使用matching速度bucketwhenavailable场景的关键输出，防止后续修改破坏既有行为。
     fun historicalEstimateUsesMatchingSpeedBucketWhenAvailable() {
         val trip = TripState(
             currentRemainingAh = 20.0,
@@ -181,6 +242,8 @@ class TripStateTest {
     }
 
     @Test
+    //MARK:测试续航回退
+    //验证historical估算fallsbacktoblendedbuckets场景的关键输出，防止后续修改破坏既有行为。
     fun historicalEstimateFallsBackToBlendedBuckets() {
         val trip = TripState(
             currentRemainingAh = 15.0,

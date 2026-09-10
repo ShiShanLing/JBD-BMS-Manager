@@ -5,6 +5,8 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
+//MARK:测试容量测试
+//AutomaticCapacityTestTest 验证 AutomaticCapacityTest 的正常流程、边界输入和需要长期保持的回归行为。
 class AutomaticCapacityTestTest {
     @Test
     fun `integrates discharge current and energy using trapezoid`() {
@@ -64,6 +66,8 @@ class AutomaticCapacityTestTest {
         assertFalse(completed.isQualifiedForHealth)
     }
 
+    //MARK:构造电池信息
+    //构造带指定关键字段的 BMS 基本信息，其他字段使用稳定默认值以突出当前断言。
     private fun info(
         soc: Int = 100,
         remaining: Double = 50.0,

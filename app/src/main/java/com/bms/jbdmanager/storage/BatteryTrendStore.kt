@@ -17,6 +17,8 @@ import java.nio.charset.StandardCharsets
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 
+//MARK:趋势备份
+//TrendBackupStats 汇总一次趋势备份的计算或读取结果，调用方无需再从原始字段重复推导。
 internal data class TrendBackupStats(
     val sampleCount: Int,
     val dailySummaryCount: Int,
@@ -24,10 +26,14 @@ internal data class TrendBackupStats(
     val fullChargeDeltaCount: Int = 0
 )
 
+//MARK:电池趋势存储
+//BatteryTrendStore 封装本地持久化、兼容解析和写回规则，用于处理电池趋势。
 internal class BatteryTrendStore(context: Context) :
     SQLiteOpenHelper(context.applicationContext, DATABASE_NAME, null, DATABASE_VERSION) {
     private val appContext = context.applicationContext
 
+    //MARK:创建组件
+    //首次创建趋势数据库时建立原始采样、每日摘要、满充指纹和满充压差表及必要索引。
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL(
             """
@@ -86,7 +92,10 @@ internal class BatteryTrendStore(context: Context) :
         createFullChargeDeltaTable(db)
     }
 
+    //MARK:升级数据库
+    //onUpgrade 按旧数据库版本依次执行缺失的增量迁移，保留用户已有趋势和健康数据。
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+        // 数据库升级只做增量迁移，不删除旧表；用户长期健康趋势必须跨版本保留。
         if (oldVersion < 2) createLongTermTables(db)
         if (oldVersion < 3) {
             createFullChargeDeltaTable(db)
@@ -95,6 +104,8 @@ internal class BatteryTrendStore(context: Context) :
         if (oldVersion < 4) addRemainingCapacityColumn(db)
     }
 
+    //MARK:创建长期表
+    //createLongTermTables 创建每日摘要与满充指纹表；使用 IF NOT EXISTS 保证迁移可以安全重试。
     private fun createLongTermTables(db: SQLiteDatabase) {
         db.execSQL(
             """
@@ -130,6 +141,8 @@ internal class BatteryTrendStore(context: Context) :
         )
     }
 
+    //MARK:创建充电压差
+    //createFullChargeDeltaTable 创建满充压差采样表及设备时间索引；IF NOT EXISTS 使数据库升级可以重复执行。
     private fun createFullChargeDeltaTable(db: SQLiteDatabase) {
         db.execSQL(
             """
@@ -151,7 +164,10 @@ internal class BatteryTrendStore(context: Context) :
         )
     }
 
+    //MARK:添加容量
+    //addRemainingCapacityColumn 检查满充压差表是否已有剩余容量字段，仅在缺失时执行 ALTER TABLE。
     private fun addRemainingCapacityColumn(db: SQLiteDatabase) {
+        // 某些测试安装可能已提前创建字段，先查表结构可让升级脚本具备幂等性。
         val hasColumn = db.rawQuery("PRAGMA table_info($TABLE_FULL_CHARGE_DELTA)", null).use { cursor ->
             val nameIndex = cursor.getColumnIndex("name")
             if (nameIndex < 0) return@use false
@@ -169,6 +185,8 @@ internal class BatteryTrendStore(context: Context) :
         }
     }
 
+    //MARK:回填满充压差
+    //backfillFullChargeDeltas 把旧满充指纹中 SOC 不低于 99% 的记录迁移为满充压差历史样本。
     private fun backfillFullChargeDeltas(db: SQLiteDatabase) {
         db.execSQL(
             """
@@ -185,7 +203,10 @@ internal class BatteryTrendStore(context: Context) :
     }
 
     @Synchronized
+    //MARK:插入采样
+    //insert 将一个趋势采样点写入数据库；落入相同时间桶的重复数据按照唯一索引覆盖。
     fun insert(deviceAddress: String, point: BatteryTrendPoint) {
+        // 唯一索引按设备、时间桶和采样间隔去重，重复回调覆盖同桶数据而不是生成重复点。
         writableDatabase.insertWithOnConflict(
             TABLE_SAMPLES,
             null,
@@ -195,6 +216,8 @@ internal class BatteryTrendStore(context: Context) :
     }
 
     @Synchronized
+    //MARK:查询趋势
+    //query 按设备和时间范围查询趋势数据，并根据跨度聚合采样点以控制图表数据量。
     fun query(
         deviceAddress: String,
         fromMillis: Long,
@@ -202,6 +225,7 @@ internal class BatteryTrendStore(context: Context) :
         maximumPoints: Int = 360
     ): List<BatteryTrendPoint> {
         if (toMillis <= fromMillis) return emptyList()
+        // 查询跨度越长，时间桶越大；返回点数受控，避免多年历史一次加载拖慢图表和占用过多内存。
         val bucketMillis = (((toMillis - fromMillis) / maximumPoints.coerceAtLeast(1))
             .coerceAtLeast(RAW_INTERVAL_MILLIS) / RAW_INTERVAL_MILLIS) * RAW_INTERVAL_MILLIS
         val sql = """
@@ -239,6 +263,8 @@ internal class BatteryTrendStore(context: Context) :
      * 满充时保存每一串电压。每天只保留总压最高的一次，长期不清理，供跨年一致性对比。
      */
     @Synchronized
+    //MARK:记录满充纹
+    //recordFullChargeFingerprint 在满足有效满充条件时保存当日逐串电压指纹，同一设备每天只保留一份代表记录。
     fun recordFullChargeFingerprint(
         deviceAddress: String,
         info: BmsBasicInfo,
@@ -278,6 +304,8 @@ internal class BatteryTrendStore(context: Context) :
     }
 
     @Synchronized
+    //MARK:读取满充纹
+    //loadFullChargeFingerprints 按设备和时间倒序读取满充逐串电压指纹，并还原逗号分隔的单体电压列表。
     fun loadFullChargeFingerprints(deviceAddress: String): List<FullChargeFingerprint> {
         return readableDatabase.rawQuery(
             """
@@ -311,6 +339,8 @@ internal class BatteryTrendStore(context: Context) :
      * 同一设备两次记录至少间隔两小时，避免自动重连刷屏。
      */
     @Synchronized
+    //MARK:记录满充差
+    //recordFullChargeDelta 保存一次满充压差、总压、电流、温度及剩余容量样本，供长期一致性趋势分析。
     fun recordFullChargeDelta(
         deviceAddress: String,
         info: BmsBasicInfo,
@@ -346,6 +376,8 @@ internal class BatteryTrendStore(context: Context) :
     }
 
     @Synchronized
+    //MARK:读取满充差
+    //loadFullChargeDeltas 按设备读取最近的满充压差样本，并将数据库可空字段保留为空值。
     fun loadFullChargeDeltas(deviceAddress: String): List<FullChargeDeltaSample> {
         return readableDatabase.rawQuery(
             """
@@ -376,6 +408,8 @@ internal class BatteryTrendStore(context: Context) :
     }
 
     @Synchronized
+    //MARK:读取备份统计
+    //backupStats 检查或导出备份，在交付结果前确认文件结构和数据完整性。
     fun backupStats(): TrendBackupStats = TrendBackupStats(
         sampleCount = countRows(TABLE_SAMPLES),
         dailySummaryCount = countRows(TABLE_DAILY),
@@ -384,6 +418,8 @@ internal class BatteryTrendStore(context: Context) :
     )
 
     @Synchronized
+    //MARK:导出快照
+    //exportDatabaseSnapshot 检查或导出数据库快照，在交付结果前确认文件结构和数据完整性。
     fun exportDatabaseSnapshot(destination: File) {
         destination.parentFile?.mkdirs()
         if (destination.exists() && !destination.delete()) {
@@ -396,6 +432,8 @@ internal class BatteryTrendStore(context: Context) :
     }
 
     @Synchronized
+    //MARK:校验库快照
+    //validateDatabaseSnapshot 检查或导出数据库快照，在交付结果前确认文件结构和数据完整性。
     fun validateDatabaseSnapshot(source: File): TrendBackupStats {
         require(source.isFile && source.length() > 0L) { "备份中缺少趋势数据库" }
         val database = SQLiteDatabase.openDatabase(source.absolutePath, null, SQLiteDatabase.OPEN_READONLY)
@@ -434,6 +472,8 @@ internal class BatteryTrendStore(context: Context) :
     }
 
     @Synchronized
+    //MARK:替换快照
+    //replaceFromDatabaseSnapshot 关闭当前数据库连接后原子替换数据库文件；替换前后均执行完整性校验。
     fun replaceFromDatabaseSnapshot(source: File) {
         validateDatabaseSnapshot(source)
         val target = appContext.getDatabasePath(DATABASE_NAME)
@@ -466,6 +506,8 @@ internal class BatteryTrendStore(context: Context) :
     }
 
     @Synchronized
+    //MARK:写CSV数据
+    //writeCsvEntries 把趋势明细、每日摘要、满充指纹和满充压差分别写成独立 CSV 条目。
     fun writeCsvEntries(zip: ZipOutputStream) {
         writeCsvEntry(zip, "趋势明细.csv") { append ->
             append("时间,时间戳,设备地址,总压V,电流A,SOC%,最高温度C,压差mV,最低单体mV,采样间隔ms\n")
@@ -554,13 +596,19 @@ internal class BatteryTrendStore(context: Context) :
         }
     }
 
+    //MARK:统计数据行
+    //countRows 执行只读计数查询并返回目标表记录数，用于备份校验和恢复预览。
     private fun countRows(table: String): Int = readableDatabase.countRows(table)
 
+    //MARK:统计数据行
+    //countRows 执行只读计数查询并返回目标表记录数，用于备份校验和恢复预览。
     private fun SQLiteDatabase.countRows(table: String): Int =
         rawQuery("SELECT COUNT(*) FROM $table", null).use { cursor ->
             if (cursor.moveToFirst()) cursor.getInt(0) else 0
         }
 
+    //MARK:写CSV条目
+    //writeCsvEntry 创建一个 CSV 条目，依次写入表头和已经完成转义的每一行数据。
     private fun writeCsvEntry(
         zip: ZipOutputStream,
         name: String,
@@ -573,14 +621,20 @@ internal class BatteryTrendStore(context: Context) :
         zip.closeEntry()
     }
 
+    //MARK:读CSV字段
+    //csvNullable 把数据库可空数值转换为 CSV 文本，空值输出为空单元格而不是虚假的零。
     private fun android.database.Cursor.csvNullable(index: Int): String =
         if (isNull(index)) "" else getDouble(index).toString()
 
+    //MARK:CSV时间
+    //csvTime 把毫秒时间戳转换为本地时区的可读日期时间，便于导出后直接查看。
     private fun csvTime(timestamp: Long): String = "\"${
         Instant.ofEpochMilli(timestamp).atZone(ZoneId.systemDefault()).toLocalDateTime()
     }\""
 
     @Synchronized
+    //MARK:维护趋势
+    //maintain 按保留策略聚合长期摘要并清理过密旧采样，在保留趋势的同时限制数据库体积。
     fun maintain(nowMillis: Long = System.currentTimeMillis()) {
         val rawCutoff = nowMillis - RAW_RETENTION_MILLIS
         val deleteCutoff = nowMillis - TOTAL_RETENTION_MILLIS
@@ -636,6 +690,8 @@ internal class BatteryTrendStore(context: Context) :
         }
     }
 
+    //MARK:转换数据行
+    //toValues 把趋势采样点转换为 ContentValues，并附加设备地址和采样间隔后写入 SQLite。
     private fun BatteryTrendPoint.toValues(address: String, intervalMillis: Long) = ContentValues().apply {
         put("timestamp_millis", timestampMillis)
         put("device_address", address)
@@ -648,13 +704,19 @@ internal class BatteryTrendStore(context: Context) :
         put("sample_interval_millis", intervalMillis)
     }
 
+    //MARK:写可空字段
+    //putNullable 只在数据库字段值存在时写入 ContentValues，否则显式保存 SQL null。
     private fun ContentValues.putNullable(key: String, value: Double?) {
         if (value == null) putNull(key) else put(key, value)
     }
 
+    //MARK:读取可空小数
+    //nullableDouble 从查询游标读取可空小数；数据库字段为 null 时保持业务值为空。
     private fun android.database.Cursor.nullableDouble(index: Int): Double? =
         if (isNull(index)) null else getDouble(index)
 
+    //MARK:常量配置
+    //定义数据库版本、表列名、采样桶、长期保留期限、满充判定间隔及快照文件大小限制。
     companion object {
         private const val DATABASE_NAME = "battery_trends.db"
         private const val DATABASE_VERSION = 4

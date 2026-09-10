@@ -33,9 +33,13 @@ import com.bms.jbdmanager.safety.TemperatureAlertNotifier
 import com.bms.jbdmanager.safety.TemperatureEmergencyOverlay
 import com.bms.jbdmanager.ui.theme.JbdBmsTheme
 
+//MARK:全屏高温警报
+//TemperatureEmergencyActivity 承接 Android 生命周期、权限和页面入口，用于处理温度紧急警报。
 class TemperatureEmergencyActivity : ComponentActivity() {
     private var alertId: Long = -1L
 
+    //MARK:创建组件
+    //从 Intent 读取危险温度与告警正文，配置锁屏可见和点亮屏幕后显示红色全屏警报。
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setShowWhenLocked(true)
@@ -60,6 +64,8 @@ class TemperatureEmergencyActivity : ComponentActivity() {
     }
 
     @Composable
+    //MARK:危险警报
+    //EmergencyContent 绘制不可忽略的红色高温危险页面，明确展示当前温度、处置建议和确认按钮。
     private fun EmergencyContent(
         title: String,
         message: String,
@@ -114,16 +120,22 @@ class TemperatureEmergencyActivity : ComponentActivity() {
         }
     }
 
+    //MARK:确认警报
+    //acknowledge 记录用户已经知晓本次危险警报，广播告警 ID 后关闭当前全屏页面。
     private fun acknowledge() {
         TemperatureAlertNotifier(this).acknowledge(alertId)
         finish()
     }
 
+    //MARK:常量配置
+    //定义全屏警报 Intent 使用的标题、正文、温度和告警 ID 参数键。
     companion object {
         private const val EXTRA_TITLE = "temperature_alert_title"
         private const val EXTRA_MESSAGE = "temperature_alert_message"
         private const val EXTRA_TEMPERATURE = "temperature_alert_value"
 
+        //MARK:创建警报令
+        //intent 创建启动温度危险 Activity 的 Intent，并把警报内容与唯一 ID 放入参数。
         fun intent(
             context: Context,
             title: String,

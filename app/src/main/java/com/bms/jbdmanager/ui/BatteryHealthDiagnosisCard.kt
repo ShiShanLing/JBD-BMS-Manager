@@ -35,6 +35,8 @@ import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 @Composable
+//MARK:健康诊断卡
+//BatteryHealthDiagnosisCard 绘制电池健康诊断卡片卡片，将同一主题的标题、关键数值和辅助信息组合展示。
 internal fun BatteryHealthDiagnosisCard(diagnosis: BatteryHealthDiagnosis) {
     val accent = diagnosisColor(diagnosis.overallLevel)
     Card(
@@ -147,6 +149,8 @@ internal fun BatteryHealthDiagnosisCard(diagnosis: BatteryHealthDiagnosis) {
 }
 
 @Composable
+//MARK:诊断结论行
+//DiagnosisFindingRow 在一行内排列诊断诊断项数据行的名称、数值和状态，统一对齐方式与间距。
 private fun DiagnosisFindingRow(finding: HealthDiagnosisFinding) {
     val color = diagnosisColor(finding.level)
     Row(
@@ -171,6 +175,8 @@ private fun DiagnosisFindingRow(finding: HealthDiagnosisFinding) {
 }
 
 @Composable
+//MARK:诊断等级颜色
+//diagnosisColor 按诊断等级或数值范围选择语义颜色，区分正常、警告和危险状态。
 private fun diagnosisColor(level: HealthDiagnosisLevel): Color = when (level) {
     HealthDiagnosisLevel.Insufficient -> MaterialTheme.colorScheme.onSurfaceVariant
     HealthDiagnosisLevel.Normal -> MaterialTheme.colorScheme.primary
@@ -179,20 +185,28 @@ private fun diagnosisColor(level: HealthDiagnosisLevel): Color = when (level) {
     HealthDiagnosisLevel.Critical -> MaterialTheme.colorScheme.error
 }
 
+//MARK:置信度文字
+//confidenceLabel 把诊断置信度转换为高、中、低中文标签。
 private fun confidenceLabel(confidence: HealthDiagnosisConfidence): String = when (confidence) {
     HealthDiagnosisConfidence.Low -> "低"
     HealthDiagnosisConfidence.Medium -> "中"
     HealthDiagnosisConfidence.High -> "高"
 }
 
+//MARK:格式化诊断
+//formatDiagnosisVoltage 将诊断转换为适合当前页面展示的文本，并统一精度、单位或正负号格式。
 private fun formatDiagnosisVoltage(millivolts: Int): String =
     String.format(Locale.US, "%.3f", millivolts / 1_000.0)
 
+//MARK:诊断数值符号
+//signedDiagnosis 将诊断转换为适合当前页面展示的文本，并统一精度、单位或正负号格式。
 private fun signedDiagnosis(value: Double): String =
     "${if (value > 0) "+" else ""}${String.format(Locale.US, "%.0f", value)}"
 
 private val diagnosisDateFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd")
 
+//MARK:诊断日期格式
+//diagnosisDate 绘制诊断组件，并根据参数决定文案、数值、颜色及交互状态。
 private fun diagnosisDate(timestamp: Long): String = diagnosisDateFormatter.format(
     Instant.ofEpochMilli(timestamp).atZone(ZoneId.systemDefault())
 )

@@ -29,6 +29,8 @@ import kotlin.math.abs
 import kotlin.math.roundToInt
 
 
+//MARK:概览指标
+//Metric 将指标相关字段组合为不可变值，避免跨层传递时出现部分字段不同步。
 internal data class Metric(
     val label: String,
     val value: String,
@@ -38,6 +40,8 @@ internal data class Metric(
 )
 
 @Composable
+//MARK:概览指标行
+//MetricRow 在一行内排列指标数据行的名称、数值和状态，统一对齐方式与间距。
 internal fun MetricRow(left: Metric, right: Metric) {
     Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         MetricCard(left, Modifier.weight(1f).fillMaxHeight())
@@ -46,6 +50,8 @@ internal fun MetricRow(left: Metric, right: Metric) {
 }
 
 @Composable
+//MARK:概览指标卡
+//MetricCard 绘制指标卡片卡片，将同一主题的标题、关键数值和辅助信息组合展示。
 private fun MetricCard(metric: Metric, modifier: Modifier = Modifier) {
     Card(
         modifier = if (metric.onClick != null) modifier.clickable(onClick = metric.onClick) else modifier,
@@ -94,6 +100,8 @@ private fun MetricCard(metric: Metric, modifier: Modifier = Modifier) {
 }
 
 @Composable
+//MARK:电量状态卡
+//SocHero 绘制 SOC 环形主指标，并根据百分比显示进度、数值和状态颜色。
 internal fun SocHero(
     info: BmsBasicInfo,
     speedKmh: Double,
@@ -203,6 +211,8 @@ internal fun SocHero(
 }
 
 @Composable
+//MARK:运行状态栏
+//RuntimeStatusColumn 绘制状态组件，并根据参数决定文案、数值、颜色及交互状态。
 private fun RuntimeStatusColumn(info: BmsBasicInfo, modifier: Modifier = Modifier) {
     val protection = protectionText(info.protectionMask)
     val balancing = info.balancingMask != 0L
@@ -233,6 +243,8 @@ private fun RuntimeStatusColumn(info: BmsBasicInfo, modifier: Modifier = Modifie
 }
 
 @Composable
+//MARK:运行状态项
+//CompactStatus 将状态转换为适合当前页面展示的文本，并统一精度、单位或正负号格式。
 private fun CompactStatus(
     label: String,
     active: Boolean,
@@ -265,6 +277,8 @@ private fun CompactStatus(
 }
 
 @Composable
+//MARK:温度探头卡
+//TemperatureCard 将温度卡片转换为适合当前页面展示的文本，并统一精度、单位或正负号格式。
 internal fun TemperatureCard(info: BmsBasicInfo) {
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), shape = RoundedCornerShape(13.dp)) {
         Row(
@@ -303,6 +317,8 @@ internal fun TemperatureCard(info: BmsBasicInfo) {
 }
 
 @Composable
+//MARK:单体电压区
+//CellsOverviewSection 绘制概览组件，并根据参数决定文案、数值、颜色及交互状态。
 internal fun CellsOverviewSection(cells: CellSummary?, cellCount: Int, balancingMask: Long, nearFull: Boolean) {
     if (cells == null) {
         Surface(
@@ -354,6 +370,8 @@ internal fun CellsOverviewSection(cells: CellSummary?, cellCount: Int, balancing
 }
 
 @Composable
+//MARK:单体摘要卡
+//SmallSummary 绘制摘要组件，并根据参数决定文案、数值、颜色及交互状态。
 private fun SmallSummary(label: String, value: String, modifier: Modifier, valueColor: Color? = null) {
     Surface(modifier, color = MaterialTheme.colorScheme.surfaceVariant, shape = RoundedCornerShape(10.dp)) {
         Column(Modifier.padding(horizontal = 7.dp, vertical = 3.dp), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -372,6 +390,8 @@ internal val AlertYellow = Color(0xFFFFC247)
 internal val AlertOrange = Color(0xFFFF8A3D)
 
 @Composable
+//MARK:压差警示颜色
+//deltaAlertColor 按压差警报等级或数值范围选择语义颜色，区分正常、警告和危险状态。
 internal fun deltaAlertColor(deltaMv: Int?, nearFull: Boolean): Color? {
     if (deltaMv == null) return null
     return if (nearFull) {
@@ -391,10 +411,14 @@ internal fun deltaAlertColor(deltaMv: Int?, nearFull: Boolean): Color? {
     }
 }
 
+//MARK:判断满充
+//isNearFull 绘制满充组件，并根据参数决定文案、数值、颜色及交互状态。
 internal fun isNearFull(info: BmsBasicInfo, cells: CellSummary?): Boolean =
     info.stateOfChargePercent >= 95 || (cells?.maximumMv ?: 0) >= 3400
 
 @Composable
+//MARK:温度警示颜色
+//temperatureAlertColor 将温度警报转换为适合当前页面展示的文本，并统一精度、单位或正负号格式。
 internal fun temperatureAlertColor(
     temperatureC: Double,
     highLimitC: Double?,
@@ -411,6 +435,8 @@ internal fun temperatureAlertColor(
 }
 
 @Composable
+//MARK:健康警示颜色
+//healthAlertColor 按健康警报等级或数值范围选择语义颜色，区分正常、警告和危险状态。
 internal fun healthAlertColor(sohPercent: Double?): Color? = when {
     sohPercent == null || sohPercent >= 90.0 -> null
     sohPercent < 75.0 -> MaterialTheme.colorScheme.error
@@ -419,6 +445,8 @@ internal fun healthAlertColor(sohPercent: Double?): Color? = when {
 }
 
 @Composable
+//MARK:单体电压卡
+//CellCard 绘制单体卡片卡片，将同一主题的标题、关键数值和辅助信息组合展示。
 private fun CellCard(index: Int, mv: Int, balancing: Boolean, min: Int?, max: Int?, modifier: Modifier = Modifier) {
     val accent = when (mv) {
         min -> MaterialTheme.colorScheme.secondary
@@ -453,6 +481,8 @@ private fun CellCard(index: Int, mv: Int, balancing: Boolean, min: Int?, max: In
 }
 
 @Composable
+//MARK:空数据提示
+//EmptyReading 在实时数据缺失时绘制统一占位符，避免把未知值误显示为零。
 internal fun EmptyReading(message: String) {
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -463,6 +493,8 @@ internal fun EmptyReading(message: String) {
     }
 }
 
+//MARK:保护状态文字
+//protectionText 绘制保护组件，并根据参数决定文案、数值、颜色及交互状态。
 private fun protectionText(mask: Int): List<String> {
     val names = listOf(
         "单体过压", "单体欠压", "总压过高", "总压过低",
@@ -473,8 +505,12 @@ private fun protectionText(mask: Int): List<String> {
     return names.mapIndexedNotNull { index, name -> name.takeIf { mask and (1 shl index) != 0 } }
 }
 
+//MARK:格式化数值
+//按指定精度格式化测量值，并移除小数末尾无意义的零。
 internal fun format(value: Double, unit: String, decimals: Int = 2): String =
     "%.${decimals}f %s".format(Locale.US, value, unit)
 
+//MARK:精简数字
+//把容量等数值压缩为适合小卡片的文本，整数不保留小数点。
 internal fun compactNumber(value: Double, decimals: Int = 2): String =
     "%.${decimals}f".format(Locale.US, value).trimEnd('0').trimEnd('.')

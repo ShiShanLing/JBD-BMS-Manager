@@ -2,8 +2,12 @@ package com.bms.jbdmanager.model
 
 import kotlin.math.max
 
+//MARK:容量测试阶段
+//AutomaticCapacityTestPhase 枚举自动容量测试的全部合法取值；新增状态时需要同步检查解析、存储和界面分支。
 enum class AutomaticCapacityTestPhase { Idle, Running, Completed }
 
+//MARK:测试状态
+//AutomaticCapacityTestState 保存自动容量测试状态的当前快照；更新时通过 copy 生成新对象，使 StateFlow 能准确通知界面。
 data class AutomaticCapacityTestState(
     val phase: AutomaticCapacityTestPhase = AutomaticCapacityTestPhase.Idle,
     val autoStartSuppressed: Boolean = false,
@@ -63,11 +67,15 @@ data class AutomaticCapacityTestState(
         }
 }
 
+//MARK:判断容量测试
+//shouldStartAutomaticCapacityTest 判断电池是否处于可靠满充起点且正在开始放电，满足条件才允许自动容量测试。
 fun shouldStartAutomaticCapacityTest(info: BmsBasicInfo): Boolean {
     val rated = info.nominalCapacityAh
     return rated > 0.0 && info.stateOfChargePercent >= 98 && info.remainingCapacityAh >= rated * 0.95
 }
 
+//MARK:开始容量测试
+//startCapacityTest 用满充时的 SOC、剩余容量、总容量和设备地址建立新的容量测试基线。
 fun startCapacityTest(
     info: BmsBasicInfo,
     nowMillis: Long,
@@ -95,6 +103,8 @@ fun startCapacityTest(
     )
 }
 
+//MARK:更新容量测试
+//updateCapacityTest 通过相邻电流与电压梯形积分累计放电 Ah/Wh，并记录样本覆盖、温度和最低 SOC。
 fun updateCapacityTest(
     state: AutomaticCapacityTestState,
     info: BmsBasicInfo,
@@ -148,6 +158,8 @@ fun updateCapacityTest(
     return if (lowVoltage) finishCapacityTest(updated, nowMillis, "已到达低电量或低压保护") else updated
 }
 
+//MARK:结束容量测试
+//finishCapacityTest 结束容量测试并根据 SOC 覆盖范围、采样完整度和终点条件计算质量及是否可用于健康评估。
 fun finishCapacityTest(
     state: AutomaticCapacityTestState,
     nowMillis: Long,

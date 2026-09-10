@@ -2,12 +2,16 @@ package com.bms.jbdmanager.model
 
 import kotlin.math.abs
 
+//MARK:保护严重等级
+//ProtectionEventSeverity 枚举保护事件的全部合法取值；新增状态时需要同步检查解析、存储和界面分支。
 enum class ProtectionEventSeverity {
     Expected,
     Warning,
     Critical
 }
 
+//MARK:保护事件
+//ProtectionEvent 表示一条独立的保护事件，包含排序、统计、持久化或报告展示所需字段。
 data class ProtectionEvent(
     val id: Long,
     val protectionBit: Int,
@@ -29,6 +33,8 @@ data class ProtectionEvent(
     val isActive: Boolean get() = resolvedAtMillis == null
 }
 
+//MARK:保护事件分类
+//ProtectionClassification 将保护相关字段组合为不可变值，避免跨层传递时出现部分字段不同步。
 data class ProtectionClassification(
     val severity: ProtectionEventSeverity,
     val summary: String
@@ -41,8 +47,12 @@ private val protectionNames = listOf(
     "软件关闭 MOS", "充电 MOS 异常", "放电 MOS 异常"
 )
 
+//MARK:保护位名称
+//protectionName 把保护映射为统一名称、格式或默认结构，供存储和界面共同复用。
 fun protectionName(bit: Int): String = protectionNames.getOrNull(bit) ?: "未知保护 ${bit + 1}"
 
+//MARK:判断保护事件
+//classifyProtectionEvent 结合保护位、SOC、单体、温度和电流判断事件严重程度并生成证据摘要。
 fun classifyProtectionEvent(bit: Int, info: BmsBasicInfo, cells: CellSummary?): ProtectionClassification {
     if (bit == 1 || bit == 3) {
         val deltaMv = cells?.deltaMv
@@ -80,6 +90,8 @@ fun classifyProtectionEvent(bit: Int, info: BmsBasicInfo, cells: CellSummary?): 
     }
 }
 
+//MARK:计算保护事件
+//resolveProtectionEvent 为仍处于触发状态的保护事件补上解除时间，生成不可变的已结束记录。
 fun resolveProtectionEvent(event: ProtectionEvent, resolvedAtMillis: Long): ProtectionEvent {
     val durationMillis = (resolvedAtMillis - event.startedAtMillis).coerceAtLeast(0L)
     val shortLoadSag = event.protectionBit in listOf(1, 3) &&

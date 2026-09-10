@@ -40,6 +40,8 @@ import androidx.compose.ui.unit.dp
 import java.io.File
 
 @Composable
+//MARK:健康报告预览
+//BatteryHealthPdfPreviewScreen 组织电池健康PDF页面的完整页面结构，组合内容区和操作入口，并把事件交给状态持有层。
 internal fun BatteryHealthPdfPreviewScreen(
     filePath: String,
     onClose: () -> Unit,
@@ -136,12 +138,16 @@ internal fun BatteryHealthPdfPreviewScreen(
     }
 }
 
+//MARK:读取PDF
+//readPdfPageCount 计算或读取PDF页面所需结果，供页面布局使用且不直接修改上层业务状态。
 private fun readPdfPageCount(file: File): Int = runCatching {
     ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY).use { descriptor ->
         PdfRenderer(descriptor).use { renderer -> renderer.pageCount }
     }
 }.getOrDefault(0)
 
+//MARK:渲染PDF页
+//renderPdfPage 计算或读取PDF页面所需结果，供页面布局使用且不直接修改上层业务状态。
 private fun renderPdfPage(file: File, pageIndex: Int): Bitmap? = runCatching {
     ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY).use { descriptor ->
         PdfRenderer(descriptor).use { renderer ->

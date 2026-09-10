@@ -37,6 +37,8 @@ import com.bms.jbdmanager.model.DataFreshness
 import com.bms.jbdmanager.model.ScanDevice
 
 @Composable
+//MARK:应用头部
+//AppHeader 绘制应用组件，并根据参数决定文案、数值、颜色及交互状态。
 internal fun AppHeader(
     state: BmsUiState,
     onShowLastSnapshot: (() -> Unit)?,
@@ -124,6 +126,8 @@ internal fun AppHeader(
     }
 }
 @Composable
+//MARK:状态徽标
+//StatusBadge 绘制状态组件，并根据参数决定文案、数值、颜色及交互状态。
 private fun StatusBadge(state: BmsUiState) {
     val (text, color) = if (state.isScanning) {
         "扫描中" to MaterialTheme.colorScheme.secondary
@@ -146,6 +150,8 @@ private fun StatusBadge(state: BmsUiState) {
 }
 
 @Composable
+//MARK:扫描面板
+//ScanPanel 绘制扫描组件，并根据参数决定文案、数值、颜色及交互状态。
 internal fun ScanPanel(
     state: BmsUiState,
     connect: (String) -> Unit,
@@ -257,6 +263,8 @@ internal fun ScanPanel(
 }
 
 @Composable
+//MARK:附近设备栏
+//NearbyDevicesHeader 绘制附近设备标题、数量和扫描按钮，并在扫描中让刷新图标旋转。
 private fun NearbyDevicesHeader(
     nearbyCount: Int,
     isScanning: Boolean,
@@ -291,6 +299,8 @@ private fun NearbyDevicesHeader(
 }
 
 @Composable
+//MARK:主操作按钮
+//PrimaryAction 绘制页面主操作按钮，统一按钮高度、圆角和点击回调。
 private fun PrimaryAction(text: String, action: () -> Unit) {
     Button(onClick = action, modifier = Modifier.fillMaxWidth()) {
         Text(text, modifier = Modifier.padding(vertical = 5.dp))
@@ -298,6 +308,8 @@ private fun PrimaryAction(text: String, action: () -> Unit) {
 }
 
 @Composable
+//MARK:信息卡片
+//InfoCard 绘制信息卡片卡片，将同一主题的标题、关键数值和辅助信息组合展示。
 private fun InfoCard(text: String, color: Color) {
     Card(colors = CardDefaults.cardColors(containerColor = color.copy(alpha = 0.12f))) {
         Text(text, color = color, modifier = Modifier.padding(16.dp))
@@ -305,6 +317,8 @@ private fun InfoCard(text: String, color: Color) {
 }
 
 @Composable
+//MARK:空设备提示
+//EmptyDevices 在扫描无结果时展示空状态说明，引导用户靠近 BMS 或重新扫描。
 private fun EmptyDevices(scanning: Boolean) {
     Column(
         Modifier.fillMaxWidth().padding(top = 58.dp),
@@ -317,6 +331,8 @@ private fun EmptyDevices(scanning: Boolean) {
 }
 
 @Composable
+//MARK:连接设备行
+//ConnectionDeviceRow 在一行内排列连接设备数据行的名称、数值和状态，统一对齐方式与间距。
 private fun ConnectionDeviceRow(
     device: ScanDevice,
     state: BmsUiState,
@@ -407,6 +423,8 @@ private fun ConnectionDeviceRow(
 }
 
 @Composable
+//MARK:连接进度
+//ProgressPanel 展示连接或服务识别进度，使用户知道当前仍在处理中。
 private fun ProgressPanel(state: BmsUiState, disconnect: () -> Unit) {
     Column(
         Modifier.fillMaxSize().padding(28.dp),

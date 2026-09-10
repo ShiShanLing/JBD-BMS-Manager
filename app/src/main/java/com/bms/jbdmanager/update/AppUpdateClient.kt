@@ -4,10 +4,14 @@ import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
 
+//MARK:更新请求
+//AppUpdateClient 负责远端请求、响应校验和资源下载，用于处理应用更新。
 internal class AppUpdateClient(
     private val versionUrl: String = AppUpdateConfig.VERSION_URL,
     private val userAgent: String = "JbdBmsManager"
 ) {
+    //MARK:获取版本
+    //fetchLatest 请求远端版本清单，解析可用版本并结合当前版本计算更新信息。
     fun fetchLatest(): AppUpdateInfo {
         val body = request(versionUrl, "application/json", TIMEOUT_MS) { connection ->
             connection.inputStream.bufferedReader().use { it.readText() }
@@ -15,6 +19,8 @@ internal class AppUpdateClient(
         return AppUpdateManifestParser.parse(body)
     }
 
+    //MARK:下载更新
+    //download 流式下载 APK 到指定文件，同时限制响应、校验长度并持续回报下载进度。
     fun download(apkUrl: String, destination: File, onProgress: (Int) -> Unit) {
         request(
             apkUrl,
@@ -67,6 +73,8 @@ internal class AppUpdateClient(
         }
     }
 
+    //MARK:请求网络数据
+    //执行一次网络请求并把已连接对象交给调用块处理；无论成功失败最终都会断开连接。
     private fun <T> request(
         url: String,
         accept: String,
@@ -93,6 +101,8 @@ internal class AppUpdateClient(
         error("下载跳转次数过多")
     }
 
+    //MARK:打开网络连接
+    //创建禁用缓存、限制连接和读取时长且携带应用 User-Agent 的 HTTP 连接。
     private fun open(url: String, accept: String, timeoutMs: Int): HttpURLConnection {
         return (URL(url).openConnection() as HttpURLConnection).apply {
             connectTimeout = TIMEOUT_MS
@@ -106,6 +116,8 @@ internal class AppUpdateClient(
         }
     }
 
+    //MARK:常量配置
+    //限定版本清单与 APK 最大响应体积，避免错误服务器响应耗尽内存或磁盘。
     private companion object {
         const val TIMEOUT_MS = 15_000
         const val DOWNLOAD_TIMEOUT_MS = 300_000

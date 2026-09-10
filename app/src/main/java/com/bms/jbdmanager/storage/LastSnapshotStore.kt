@@ -9,6 +9,7 @@ import com.bms.jbdmanager.model.GpsSpeedState
 import com.bms.jbdmanager.model.JbdProtectionParams
 import com.bms.jbdmanager.model.LastBmsSnapshot
 import com.bms.jbdmanager.model.MileageHistoryState
+import com.bms.jbdmanager.model.RegenerationPeak
 import com.bms.jbdmanager.model.SpeedRangeStats
 import com.bms.jbdmanager.model.TripSessionRecord
 import com.bms.jbdmanager.model.TripState
@@ -17,12 +18,17 @@ import com.bms.jbdmanager.trip.TripStateStore
 import org.json.JSONArray
 import org.json.JSONObject
 
+//MARK:快照存储
+//LastSnapshotStore 封装本地持久化、兼容解析和写回规则，用于处理最后一次快照。
 internal class LastSnapshotStore(context: Context) {
     private val preferences = context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
     private val mileageHistoryStore = MileageHistoryStore(context)
     private val tripStateStore = TripStateStore(context)
 
+    //MARK:保存状态
+    //从当前 UI 状态提取最后一包完整 BMS 数据、单体、参数和行程，合并历史后覆盖离线快照。
     fun save(state: BmsUiState, nowMillis: Long = System.currentTimeMillis()): LastBmsSnapshot? {
+        // 没有成功解析基本信息时不保存，防止连接中间态覆盖上一份完整、可查看的离线状态。
         val info = state.basicInfo ?: return null
         val mileageHistory = mergeMileageHistory(state.mileageHistory)
         val snapshot = LastBmsSnapshot(
@@ -44,7 +50,10 @@ internal class LastSnapshotStore(context: Context) {
         return snapshot
     }
 
+    //MARK:读取记录
+    //逐字段还原最后一次电池快照；关键电压或容量缺失时拒绝生成可能误导用户的离线状态。
     fun load(): LastBmsSnapshot? {
+        // KEY_EXISTS 最后才随完整写入建立；缺少关键字段则视为无快照，而不是用 0 拼出虚假电池数据。
         if (!preferences.getBoolean(KEY_EXISTS, false)) return null
         val savedAt = preferences.getLong(KEY_SAVED_AT, -1L).takeIf { it >= 0L } ?: return null
         val basic = BmsBasicInfo(
@@ -93,6 +102,16 @@ internal class LastSnapshotStore(context: Context) {
             validLocationPoints = preferences.getInt(KEY_TRIP_POINTS, 0),
             lastLocationAtMillis = preferences.optionalLong(KEY_TRIP_LAST_LOCATION),
             gpsMessage = "最后状态保存时的行程",
+            maximumRegeneration = preferences.double(KEY_TRIP_REGEN_POWER)
+                ?.takeIf { it > 0.0 }
+                ?.let { powerW ->
+                    RegenerationPeak(
+                        currentA = preferences.double(KEY_TRIP_REGEN_CURRENT) ?: 0.0,
+                        powerW = powerW,
+                        speedKmh = preferences.double(KEY_TRIP_REGEN_SPEED) ?: 0.0,
+                        recordedAtMillis = preferences.optionalLong(KEY_TRIP_REGEN_AT) ?: 0L
+                    )
+                },
             speedRangeStats = savedSpeedRangeStats
         )
         val mileageHistory = mergeMileageHistory(
@@ -120,8 +139,11 @@ internal class LastSnapshotStore(context: Context) {
         )
     }
 
+    //MARK:选择快照行程
+    //selectSnapshotTrip 优先选择达到有效距离的当前行程；当前数据过短时回退到最近一次已完成行程。
     private fun selectSnapshotTrip(trip: TripState, mileageHistory: MileageHistoryState): TripState {
         val currentTrip = trip.copy(isTracking = false, currentSpeedKmh = 0.0)
+        // 当前行程达到有效距离时优先展示；过短或刚启动的行程则回退到最近完成记录，避免总显示 0 km。
         if (currentTrip.distanceMeters >= MINIMUM_MEANINGFUL_TRIP_METERS) return currentTrip
 
         val latestCompleted = mileageHistory.sessions.maxByOrNull { it.finishedAtMillis }
@@ -135,11 +157,15 @@ internal class LastSnapshotStore(context: Context) {
             integratedConsumedWh = latestCompleted.consumedWh,
             currentA = 0.0,
             currentSpeedKmh = 0.0,
+            maximumRegeneration = latestCompleted.maximumRegeneration,
             gpsMessage = "最近一次已完成行程"
         )
     }
 
+    //MARK:合并里程历史
+    //mergeMileageHistory 合并快照和独立历史仓库中的行程，按起止时间去重、倒序排列并限制总数。
     private fun mergeMileageHistory(saved: MileageHistoryState): MileageHistoryState {
+        // 快照副本与独立历史仓库可能包含相同记录，按起止时间去重后再限制数量，防止重复累计。
         val sessions = (saved.sessions + mileageHistoryStore.loadSessions())
             .distinctBy { it.startedAtMillis to it.finishedAtMillis }
             .sortedByDescending { it.startedAtMillis }
@@ -147,9 +173,12 @@ internal class LastSnapshotStore(context: Context) {
         return saved.copy(sessions = sessions)
     }
 
+    //MARK:写入数据
+    //清空旧快照后在同一 Editor 中写入全部字段，防止模型删减字段后残留旧值被误读。
     private fun write(snapshot: LastBmsSnapshot) {
         val info = snapshot.basicInfo
         val trip = snapshot.trip
+        // 单次 Editor 提交整份快照，旧字段先清除，避免模型字段减少后残留值被新版本误读。
         preferences.edit().clear()
             .putBoolean(KEY_EXISTS, true)
             .putLong(KEY_SAVED_AT, snapshot.savedAtMillis)
@@ -193,6 +222,10 @@ internal class LastSnapshotStore(context: Context) {
             .putDouble(KEY_TRIP_CONSUMED_AH, trip.integratedConsumedAh)
             .putDouble(KEY_TRIP_CONSUMED_WH, trip.integratedConsumedWh)
             .putDouble(KEY_TRIP_CURRENT, trip.currentA)
+            .putOptionalDouble(KEY_TRIP_REGEN_CURRENT, trip.maximumRegeneration?.currentA)
+            .putOptionalDouble(KEY_TRIP_REGEN_POWER, trip.maximumRegeneration?.powerW)
+            .putOptionalDouble(KEY_TRIP_REGEN_SPEED, trip.maximumRegeneration?.speedKmh)
+            .putOptionalLong(KEY_TRIP_REGEN_AT, trip.maximumRegeneration?.recordedAtMillis)
             .putOptionalFloat(KEY_TRIP_ACCURACY, trip.locationAccuracyMeters)
             .putInt(KEY_TRIP_POINTS, trip.validLocationPoints)
             .putOptionalLong(KEY_TRIP_LAST_LOCATION, trip.lastLocationAtMillis)
@@ -201,6 +234,8 @@ internal class LastSnapshotStore(context: Context) {
             .commit()
     }
 
+    //MARK:编码JSON
+    //把只读保护阈值模型编码为 JSON；未知阈值保持缺失，而不是写成零。
     private fun JbdProtectionParams.toJson(): JSONObject = JSONObject().apply {
         putOptionalDouble("fullChargeVoltageV", fullChargeVoltageV)
         putOptionalDouble("cellOvervoltageV", cellOvervoltageV)
@@ -223,6 +258,8 @@ internal class LastSnapshotStore(context: Context) {
         putOptionalDouble("dischargeLowTempReleaseC", dischargeLowTempReleaseC)
     }
 
+    //MARK:还原保护参数
+    //把快照中的保护参数 JSON 还原为只读参数模型；空文本或任一字段解析失败时返回空值。
     private fun String?.toProtectionParams(): JbdProtectionParams? {
         if (this.isNullOrBlank()) return null
         return runCatching {
@@ -251,13 +288,19 @@ internal class LastSnapshotStore(context: Context) {
         }.getOrNull()
     }
 
+    //MARK:写可选小数
+    //putOptionalDouble 仅在小数值存在时写入目标 JSON 或偏好数据，避免用零覆盖未知状态。
     private fun JSONObject.putOptionalDouble(key: String, value: Double?) {
         if (value != null) put(key, value)
     }
 
+    //MARK:可选小数
+    //optionalDouble 读取可选小数字段；键缺失或值为 JSON null 时返回 Kotlin null。
     private fun JSONObject.optionalDouble(key: String): Double? =
         if (has(key) && !isNull(key)) getDouble(key) else null
 
+    //MARK:编码JSON
+    //把各速度区间的距离、时间与耗电样本编码为 JSON 数组，供离线续航页恢复。
     private fun List<SpeedRangeStats>.toJson(): String = JSONArray().apply {
         forEach { stats ->
             put(JSONObject().apply {
@@ -270,6 +313,8 @@ internal class LastSnapshotStore(context: Context) {
         }
     }.toString()
 
+    //MARK:还原分速续航
+    //把快照中的分速度续航 JSON 还原为样本列表，并过滤缺少速度边界的无效项目。
     private fun String?.toSpeedRangeStats(): List<SpeedRangeStats>? {
         if (this.isNullOrBlank()) return null
         return runCatching {
@@ -291,6 +336,8 @@ internal class LastSnapshotStore(context: Context) {
         }.getOrNull()
     }
 
+    //MARK:编码JSON
+    //把已完成行程和当前活动行程摘要编码为 JSON，保存离线页面所需里程上下文。
     private fun MileageHistoryState.toJson(): String = JSONObject().apply {
         put("activeDistanceMeters", activeTripDistanceMeters)
         activeTripStartedAtMillis?.let { put("activeStartedAtMillis", it) }
@@ -302,11 +349,20 @@ internal class LastSnapshotStore(context: Context) {
                     put("distanceMeters", session.distanceMeters)
                     put("consumedAh", session.consumedAh)
                     put("consumedWh", session.consumedWh)
+                    session.maximumRegeneration?.let { peak ->
+                        put("maximumRegeneration", JSONObject()
+                            .put("currentA", peak.currentA)
+                            .put("powerW", peak.powerW)
+                            .put("speedKmh", peak.speedKmh)
+                            .put("recordedAtMillis", peak.recordedAtMillis))
+                    }
                 })
             }
         })
     }.toString()
 
+    //MARK:还原里程历史
+    //还原快照携带的行程历史和活动行程摘要；旧版本无此字段或解析失败时返回空历史。
     private fun String?.toMileageHistory(): MileageHistoryState {
         if (this.isNullOrBlank()) return MileageHistoryState()
         return runCatching {
@@ -321,7 +377,15 @@ internal class LastSnapshotStore(context: Context) {
                             finishedAtMillis = item.getLong("finishedAtMillis"),
                             distanceMeters = item.getDouble("distanceMeters"),
                             consumedAh = item.optDouble("consumedAh", 0.0),
-                            consumedWh = item.optDouble("consumedWh", 0.0)
+                            consumedWh = item.optDouble("consumedWh", 0.0),
+                            maximumRegeneration = item.optJSONObject("maximumRegeneration")?.let { peak ->
+                                RegenerationPeak(
+                                    currentA = peak.optDouble("currentA", 0.0),
+                                    powerW = peak.optDouble("powerW", 0.0),
+                                    speedKmh = peak.optDouble("speedKmh", 0.0),
+                                    recordedAtMillis = peak.optLong("recordedAtMillis", 0L)
+                                )
+                            }
                         )
                     )
                 }
@@ -335,21 +399,43 @@ internal class LastSnapshotStore(context: Context) {
         }.getOrDefault(MileageHistoryState())
     }
 
+    //MARK:读取小数
+    //double 读取以字符串保存的 Double，格式错误时返回空值而不是抛出异常。
     private fun SharedPreferences.double(key: String): Double? = getString(key, null)?.toDoubleOrNull()
+    //MARK:解析小数列表
+    //toDoubleList 把逗号分隔的小数字符串还原为列表；空值和无法解析的片段会被安全忽略。
     private fun String?.toDoubleList(): List<Double> = this?.split(',')?.mapNotNull(String::toDoubleOrNull).orEmpty()
+    //MARK:可选整数
+    //optionalInt 读取可选整数字段；键缺失或值为 JSON null 时返回 Kotlin null。
     private fun SharedPreferences.optionalInt(key: String): Int? = if (contains(key)) getInt(key, 0) else null
+    //MARK:可选长整
+    //optionalLong 读取可选长整数字段；键缺失或值为 JSON null 时返回 Kotlin null。
     private fun SharedPreferences.optionalLong(key: String): Long? = if (contains(key)) getLong(key, 0L) else null
+    //MARK:可选浮点
+    //optionalFloat 读取可选浮点字段；键缺失时返回 Kotlin null，以区分真实的零值。
     private fun SharedPreferences.optionalFloat(key: String): Float? = if (contains(key)) getFloat(key, 0f) else null
+    //MARK:写入小数
+    //putDouble 把 Double 转成字符串保存，避免 SharedPreferences 只支持 Float 导致精度损失。
     private fun SharedPreferences.Editor.putDouble(key: String, value: Double) = putString(key, value.toString())
+    //MARK:写可选小数
+    //putOptionalDouble 仅在小数值存在时写入目标 JSON 或偏好数据，避免用零覆盖未知状态。
     private fun SharedPreferences.Editor.putOptionalDouble(key: String, value: Double?) =
         value?.let { putDouble(key, it) } ?: remove(key)
+    //MARK:写可选整数
+    //putOptionalInt 仅在整数值存在时写入偏好数据，空值则保持对应键不存在。
     private fun SharedPreferences.Editor.putOptionalInt(key: String, value: Int?) =
         value?.let { putInt(key, it) } ?: remove(key)
+    //MARK:写可选长整
+    //putOptionalLong 仅在长整数值存在时写入偏好数据，空值则保持对应键不存在。
     private fun SharedPreferences.Editor.putOptionalLong(key: String, value: Long?) =
         value?.let { putLong(key, it) } ?: remove(key)
+    //MARK:写可选浮点
+    //putOptionalFloat 仅在浮点值存在时写入偏好数据，空值则保持对应键不存在。
     private fun SharedPreferences.Editor.putOptionalFloat(key: String, value: Float?) =
         value?.let { putFloat(key, it) } ?: remove(key)
 
+    //MARK:常量配置
+    //声明离线快照全部字段键、有效行程最小距离和最多合并的历史数量，确保读写使用同一协议。
     private companion object {
         const val PREFERENCES_NAME = "jbd_last_snapshot"
         const val KEY_EXISTS = "exists"
@@ -394,6 +480,10 @@ internal class LastSnapshotStore(context: Context) {
         const val KEY_TRIP_CONSUMED_AH = "trip_consumed_ah"
         const val KEY_TRIP_CONSUMED_WH = "trip_consumed_wh"
         const val KEY_TRIP_CURRENT = "trip_current"
+        const val KEY_TRIP_REGEN_CURRENT = "trip_regen_current"
+        const val KEY_TRIP_REGEN_POWER = "trip_regen_power"
+        const val KEY_TRIP_REGEN_SPEED = "trip_regen_speed"
+        const val KEY_TRIP_REGEN_AT = "trip_regen_at"
         const val KEY_TRIP_ACCURACY = "trip_accuracy"
         const val KEY_TRIP_POINTS = "trip_points"
         const val KEY_TRIP_LAST_LOCATION = "trip_last_location"

@@ -13,10 +13,14 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import com.bms.jbdmanager.model.TemperatureSafetyAlert
 
+//MARK:应用内高温层
+//TemperatureEmergencyOverlay 提供进程内共享的温度紧急警报能力，并集中维护其状态、常量或纯计算入口。
 internal object TemperatureEmergencyOverlay {
     private var windowManager: WindowManager? = null
     private var overlayView: View? = null
 
+    //MARK:显示警报
+    //拥有悬浮窗权限时移除旧警报并创建覆盖屏幕的红色危险层，展示温度、原因和确认按钮。
     fun show(context: Context, alert: TemperatureSafetyAlert) {
         if (!Settings.canDrawOverlays(context)) return
         dismiss()
@@ -84,6 +88,8 @@ internal object TemperatureEmergencyOverlay {
         }
     }
 
+    //MARK:关闭警报
+    //dismiss 关闭或确认dismiss并清理去重状态，避免同一警报被重复展示。
     fun dismiss() {
         val view = overlayView ?: return
         runCatching { windowManager?.removeView(view) }

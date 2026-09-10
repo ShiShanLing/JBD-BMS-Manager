@@ -48,6 +48,8 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 @Composable
+//MARK:容量健康页
+//CapacityHealthPage 组织容量健康页面的完整页面结构，组合内容区和操作入口，并把事件交给状态持有层。
 internal fun CapacityHealthPage(
     state: BmsUiState,
     onAddRecord: (Double, Double?, String) -> Unit,
@@ -205,6 +207,8 @@ internal fun CapacityHealthPage(
 }
 
 @Composable
+//MARK:自动容量测试
+//AutomaticCapacityTestCard 绘制自动容量测试卡片卡片，将同一主题的标题、关键数值和辅助信息组合展示。
 private fun AutomaticCapacityTestCard(
     test: AutomaticCapacityTestState,
     isConnected: Boolean,
@@ -315,6 +319,8 @@ private fun AutomaticCapacityTestCard(
 }
 
 @Composable
+//MARK:容量指标行
+//CapacityTestMetricRow 在一行内排列容量测试指标数据行的名称、数值和状态，统一对齐方式与间距。
 private fun CapacityTestMetricRow(leftLabel: String, leftValue: String, rightLabel: String, rightValue: String) {
     Row(Modifier.fillMaxWidth().padding(vertical = 3.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("$leftLabel  $leftValue", fontSize = 11.sp, modifier = Modifier.weight(1f))
@@ -322,6 +328,8 @@ private fun CapacityTestMetricRow(leftLabel: String, leftValue: String, rightLab
     }
 }
 
+//MARK:格式化测试
+//formatTestDuration 将测试转换为适合当前页面展示的文本，并统一精度、单位或正负号格式。
 private fun formatTestDuration(seconds: Double): String {
     val total = seconds.toLong().coerceAtLeast(0L)
     val hours = total / 3_600
@@ -330,6 +338,8 @@ private fun formatTestDuration(seconds: Double): String {
 }
 
 @Composable
+//MARK:健康摘要卡
+//HealthSummary 绘制健康摘要组件，并根据参数决定文案、数值、颜色及交互状态。
 private fun HealthSummary(
     label: String,
     value: String,
@@ -345,6 +355,8 @@ private fun HealthSummary(
 }
 
 @Composable
+//MARK:容量健康趋势
+//CapacityHealthTrend 绘制容量健康趋势组件，并根据参数决定文案、数值、颜色及交互状态。
 private fun CapacityHealthTrend(records: List<CapacityHealthRecord>) {
     Card(shape = RoundedCornerShape(14.dp)) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp)) {
@@ -380,6 +392,8 @@ private fun CapacityHealthTrend(records: List<CapacityHealthRecord>) {
 }
 
 @Composable
+//MARK:容量记录卡
+//CapacityHealthRecordCard 绘制容量健康记录卡片卡片，将同一主题的标题、关键数值和辅助信息组合展示。
 private fun CapacityHealthRecordCard(record: CapacityHealthRecord, onDelete: () -> Unit) {
     Card(shape = RoundedCornerShape(13.dp)) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 9.dp)) {
@@ -423,6 +437,8 @@ private fun CapacityHealthRecordCard(record: CapacityHealthRecord, onDelete: () 
 }
 
 @Composable
+//MARK:添加容量记录
+//AddCapacityRecordDialog 展示容量记录弹框弹框，按当前状态控制按钮可用性，并通过回调提交或取消操作。
 private fun AddCapacityRecordDialog(
     ratedCapacityAh: Double,
     onDismiss: () -> Unit,
@@ -487,6 +503,8 @@ private fun AddCapacityRecordDialog(
     )
 }
 
+//MARK:限制小数输入
+//清理容量输入文本，只保留合法数字和一个小数点，避免保存无法解析的测试结果。
 private fun decimalInput(value: String, maxLength: Int): String {
     val filtered = value.filter { it.isDigit() || it == '.' }.take(maxLength)
     val dot = filtered.indexOf('.')
@@ -496,10 +514,14 @@ private fun decimalInput(value: String, maxLength: Int): String {
 private val capacityDateFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
 private val capacityShortDateFormatter = DateTimeFormatter.ofPattern("M/d")
 
+//MARK:格式化容量
+//formatCapacityDate 将容量转换为适合当前页面展示的文本，并统一精度、单位或正负号格式。
 private fun formatCapacityDate(millis: Long): String = Instant.ofEpochMilli(millis)
     .atZone(ZoneId.systemDefault())
     .format(capacityDateFormatter)
 
+//MARK:格式化容量
+//formatCapacityShortDate 将容量转换为适合当前页面展示的文本，并统一精度、单位或正负号格式。
 private fun formatCapacityShortDate(millis: Long): String = Instant.ofEpochMilli(millis)
     .atZone(ZoneId.systemDefault())
     .format(capacityShortDateFormatter)

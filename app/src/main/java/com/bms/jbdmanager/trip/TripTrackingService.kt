@@ -34,6 +34,8 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
+//MARK:行程服务
+//TripTrackingService 在后台生命周期内持续执行并同步状态，用于处理行程跟踪。
 class TripTrackingService : Service(), LocationListener {
     private lateinit var locationManager: LocationManager
     private var lastAcceptedLocation: Location? = null
@@ -48,6 +50,8 @@ class TripTrackingService : Service(), LocationListener {
     private val speedSamples = ArrayDeque<Pair<Long, Double>>()
     private var average5SecondSpeedKmh = 0.0
 
+    //MARK:创建组件
+    //初始化定位管理器、通知渠道和状态观察任务，并标记行程服务已运行。
     override fun onCreate() {
         super.onCreate()
         isRunning = true
@@ -56,6 +60,8 @@ class TripTrackingService : Service(), LocationListener {
         createNotificationChannel()
     }
 
+    //MARK:处理服务指令
+    //onStartCommand 计算或控制onStartCommand，并保持 BMS 行程与纯 GPS 行程的数据边界。
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
             stopTracking("已从通知结束行程", suppressAutoRestart = true)
@@ -73,6 +79,8 @@ class TripTrackingService : Service(), LocationListener {
         return START_STICKY
     }
 
+    //MARK:请求定位
+    //requestLocationUpdates 维护定位所需的后台定位、通知或状态观察流程。
     private fun requestLocationUpdates(force: Boolean = false) {
         if (locationUpdatesRequested && !force) return
         val hasFineLocation = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) ==
@@ -107,8 +115,11 @@ class TripTrackingService : Service(), LocationListener {
         }
     }
 
+    //MARK:定位更新
+    //onLocationChanged 使用过滤后的定位或 BMS 样本更新定位，拒绝异常时间间隔和不可信数据。
     override fun onLocationChanged(location: Location) {
         lastLocationCallbackAtElapsedMillis = SystemClock.elapsedRealtime()
+        // 精度差的定位点会产生几十米跳点，车辆静止时也可能累计里程，因此在参与计算前直接丢弃。
         if (!location.hasAccuracy() || location.accuracy > MAX_ACCEPTED_ACCURACY_METERS) {
             TripTracker.updateGpsStatus("GPS 信号较弱，等待更准确定位")
             return
@@ -117,6 +128,7 @@ class TripTrackingService : Service(), LocationListener {
         val previous = lastAcceptedLocation
         lastAcceptedLocation = location
         if (previous == null) {
+            // 第一个有效点只能建立基线，不能凭单点推算距离；但设备提供的速度仍可用于即时显示。
             val speed = location.plausibleSpeedOrZero()
             updateAverageSpeed(location.time, speed * 3.6)
             TripTracker.updateLocation(
@@ -127,6 +139,7 @@ class TripTrackingService : Service(), LocationListener {
 
         val elapsedSeconds = (location.elapsedRealtimeNanos - previous.elapsedRealtimeNanos) / 1_000_000_000.0
         if (elapsedSeconds <= 0.0 || elapsedSeconds > MAX_LOCATION_GAP_SECONDS) {
+            // 时间倒退或定位中断后不连接前后两个点，防止恢复定位时把两点直线距离误记为真实骑行。
             val speed = location.plausibleSpeedOrZero()
             updateAverageSpeed(location.time, speed * 3.6)
             TripTracker.updateLocation(
@@ -142,6 +155,7 @@ class TripTrackingService : Service(), LocationListener {
             measuredSpeed <= MAX_PLAUSIBLE_SPEED_MPS
         val acceptedSpeed = if (plausible) measuredSpeed.coerceAtLeast(0.0) else 0.0
         val moving = measuredSpeed >= MIN_MOVING_SPEED_MPS && segmentMeters >= MIN_SEGMENT_METERS
+        // 速度和最小位移必须同时成立：过滤 GPS 漂移，也过滤超出车辆能力的瞬时跳点。
         val acceptedDistance = if (plausible && moving) segmentMeters else 0.0
         updateAverageSpeed(location.time, acceptedSpeed * 3.6)
 
@@ -155,10 +169,14 @@ class TripTrackingService : Service(), LocationListener {
         )
     }
 
+    //MARK:定位源关闭
+    //onProviderDisabled 计算或控制onProviderDisabled，并保持 BMS 行程与纯 GPS 行程的数据边界。
     override fun onProviderDisabled(provider: String) {
         if (provider == LocationManager.GPS_PROVIDER) TripTracker.updateGpsStatus("手机定位服务已关闭")
     }
 
+    //MARK:定位源开启
+    //onProviderEnabled 计算或控制onProviderEnabled，并保持 BMS 行程与纯 GPS 行程的数据边界。
     override fun onProviderEnabled(provider: String) {
         if (provider == LocationManager.GPS_PROVIDER) {
             TripTracker.updateGpsStatus("正在等待 GPS 定位")
@@ -167,8 +185,12 @@ class TripTrackingService : Service(), LocationListener {
     }
 
     @Deprecated("Deprecated in Android")
+    //MARK:状态回调
+    //onStatusChanged 计算或控制状态，并保持 BMS 行程与纯 GPS 行程的数据边界。
     override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) = Unit
 
+    //MARK:销毁组件
+    //onDestroy 解除系统监听并释放后台任务或资源，防止组件销毁后继续收到回调。
     override fun onDestroy() {
         runCatching { locationManager.removeUpdates(this) }
         locationUpdatesRequested = false
@@ -178,8 +200,12 @@ class TripTrackingService : Service(), LocationListener {
         super.onDestroy()
     }
 
+    //MARK:绑定服务
+    //onBind 该服务不提供绑定接口，因此返回空值并只通过启动式前台服务运行。
     override fun onBind(intent: Intent?): IBinder? = null
 
+    //MARK:停止定位跟踪
+    //stopTracking 结束或暂停跟踪，保存已有累计值并停止继续接收实时数据。
     private fun stopTracking(message: String, suppressAutoRestart: Boolean = false) {
         runCatching { locationManager.removeUpdates(this) }
         locationUpdatesRequested = false
@@ -188,6 +214,8 @@ class TripTrackingService : Service(), LocationListener {
         stopSelf()
     }
 
+    //MARK:观察行程
+    //observeTripUpdates 维护行程所需的后台定位、通知或状态观察流程。
     private fun observeTripUpdates() {
         if (notificationJob != null) return
         notificationJob = serviceScope.launch {
@@ -206,6 +234,8 @@ class TripTrackingService : Service(), LocationListener {
         }
     }
 
+    //MARK:定位看门狗
+    //observeLocationHealth 维护定位健康所需的后台定位、通知或状态观察流程。
     private fun observeLocationHealth() {
         if (locationWatchdogJob != null) return
         locationWatchdogJob = serviceScope.launch {
@@ -219,6 +249,7 @@ class TripTrackingService : Service(), LocationListener {
                 }
                 val silentFor = SystemClock.elapsedRealtime() - lastLocationCallbackAtElapsedMillis
                 if (silentFor >= LOCATION_CALLBACK_TIMEOUT_MS) {
+                    // 服务仍存活但系统不再回调时主动重新注册定位，这是蓝牙重连后 GPS 偶发无数据的兜底。
                     TripTracker.updateGpsStatus("GPS 长时间无数据，正在重新连接定位")
                     requestLocationUpdates(force = true)
                 }
@@ -227,6 +258,8 @@ class TripTrackingService : Service(), LocationListener {
     }
 
     @SuppressLint("MissingPermission")
+    //MARK:更新行程通知
+    //postNotificationUpdate 维护通知更新所需的后台定位、通知或状态观察流程。
     private fun postNotificationUpdate(state: TripState) {
         if (!canPostNotifications()) return
         runCatching {
@@ -234,19 +267,26 @@ class TripTrackingService : Service(), LocationListener {
         }
     }
 
+    //MARK:检查通知权
+    //canPostNotifications 计算或控制canPostNotifications，并保持 BMS 行程与纯 GPS 行程的数据边界。
     private fun canPostNotifications(): Boolean =
         Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
             ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) ==
             PackageManager.PERMISSION_GRANTED
 
+    //MARK:计算均速
+    //updateAverageSpeed 使用过滤后的定位或 BMS 样本更新更新速度，拒绝异常时间间隔和不可信数据。
     private fun updateAverageSpeed(timestampMillis: Long, speedKmh: Double) {
         speedSamples.addLast(timestampMillis to speedKmh.coerceAtLeast(0.0))
+        // 使用滚动时间窗而不是固定样本数，避免不同手机定位频率不同导致平均时长发生变化。
         while (speedSamples.isNotEmpty() && timestampMillis - speedSamples.first().first > 5_000L) {
             speedSamples.removeFirst()
         }
         average5SecondSpeedKmh = speedSamples.map { it.second }.average().takeUnless { it.isNaN() } ?: 0.0
     }
 
+    //MARK:创建通知
+    //createNotificationChannel 维护通知所需的后台定位、通知或状态观察流程。
     private fun createNotificationChannel() {
         val manager = getSystemService(NotificationManager::class.java)
         manager.createNotificationChannel(
@@ -269,6 +309,8 @@ class TripTrackingService : Service(), LocationListener {
         )
     }
 
+    //MARK:构建通知
+    //buildNotification 维护通知所需的后台定位、通知或状态观察流程。
     private fun buildNotification(state: TripState): android.app.Notification {
         if (state.isMileageOnly) return buildMileageOnlyNotification(state)
         val soc = state.currentSocPercent ?: state.startSocPercent ?: 0
@@ -320,6 +362,8 @@ class TripTrackingService : Service(), LocationListener {
             .build()
     }
 
+    //MARK:纯GPS通知
+    //buildMileageOnlyNotification 维护里程通知所需的后台定位、通知或状态观察流程。
     private fun buildMileageOnlyNotification(state: TripState): android.app.Notification {
         val speedText = decimal(state.currentSpeedKmh, 1)
         val distanceText = decimal(state.distanceKm, 1)
@@ -368,6 +412,8 @@ class TripTrackingService : Service(), LocationListener {
     }
 
     @SuppressLint("MissingPermission")
+    //MARK:倒计时提醒
+    //postCountdownAlertIfNeeded 维护倒计时警报所需的后台定位、通知或状态观察流程。
     private fun postCountdownAlertIfNeeded(state: TripState) {
         if (!state.isMileageOnly) return
         val reachedAt = state.mileageCountdownReachedAtMillis
@@ -406,17 +452,27 @@ class TripTrackingService : Service(), LocationListener {
         NotificationManagerCompat.from(this).notify(COUNTDOWN_ALERT_NOTIFICATION_ID, notification)
     }
 
+    //MARK:格式化小数
+    //decimal 计算或控制decimal，并保持 BMS 行程与纯 GPS 行程的数据边界。
     private fun decimal(value: Double, digits: Int): String =
         "%.${digits}f".format(Locale.US, value).trimEnd('0').trimEnd('.')
 
+    //MARK:读取定位速度
+    //speedOrZero 计算或控制速度，并保持 BMS 行程与纯 GPS 行程的数据边界。
     private fun Location.speedOrZero(): Float = if (hasSpeed()) speed.coerceAtLeast(0f) else 0f
 
+    //MARK:过滤异常速度
+    //plausibleSpeedOrZero 计算或控制速度，并保持 BMS 行程与纯 GPS 行程的数据边界。
     private fun Location.plausibleSpeedOrZero(): Float =
         speedOrZero().takeIf { it <= MAX_PLAUSIBLE_SPEED_MPS } ?: 0f
 
+    //MARK:读取速度精度
+    //speedAccuracyOrNull 计算或控制速度，并保持 BMS 行程与纯 GPS 行程的数据边界。
     private fun Location.speedAccuracyOrNull(): Float? =
         if (hasSpeedAccuracy()) speedAccuracyMetersPerSecond else null
 
+    //MARK:常量配置
+    //定义服务动作、通知渠道、定位频率、精度与速度过滤阈值以及 GPS 看门狗超时时间。
     companion object {
         @Volatile
         var isRunning: Boolean = false

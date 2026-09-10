@@ -10,16 +10,22 @@ import org.junit.Test
 import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
+//MARK:测试保护事件
+//ProtectionEventStoreTest 验证 ProtectionEventStore 的正常流程、边界输入和需要长期保持的回归行为。
 class ProtectionEventStoreTest {
     private val context = ApplicationProvider.getApplicationContext<android.content.Context>()
 
     @Before
+    //MARK:清理测试事件
+    //clearEvents 在每个用例执行前清理或建立隔离环境，防止本地残留数据影响断言。
     fun clearEvents() {
         context.getSharedPreferences("jbd_protection_events", android.content.Context.MODE_PRIVATE)
             .edit().clear().commit()
     }
 
     @Test
+    //MARK:测试事件
+    //验证活动事件canbepersistedandresolved场景的关键输出，防止后续修改破坏既有行为。
     fun activeEventCanBePersistedAndResolved() {
         val store = ProtectionEventStore(context)
         val active = ProtectionEvent(

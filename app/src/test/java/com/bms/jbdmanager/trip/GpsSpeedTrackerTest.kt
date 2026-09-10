@@ -3,6 +3,8 @@ package com.bms.jbdmanager.trip
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
+//MARK:测试PS速度
+//GpsSpeedTrackerTest 验证 GpsSpeedTracker 的正常流程、边界输入和需要长期保持的回归行为。
 class GpsSpeedTrackerTest {
     @Test
     fun `uses five second samples and records highest stable average`() {

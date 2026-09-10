@@ -4,9 +4,13 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
+//MARK:测试健康诊断
+//BatteryHealthDiagnosisTest 验证 BatteryHealthDiagnosis 的正常流程、边界输入和需要长期保持的回归行为。
 class BatteryHealthDiagnosisTest {
 
     @Test
+    //MARK:测试单体
+    //验证uniformpack电压dropisnottreatedasweak单体场景的关键输出，防止后续修改破坏既有行为。
     fun uniformPackVoltageDropIsNotTreatedAsWeakCell() {
         val result = diagnoseBatteryHealth(
             capacityRecords = emptyList(),
@@ -22,6 +26,8 @@ class BatteryHealthDiagnosisTest {
     }
 
     @Test
+    //MARK:测试单体
+    //验证one单体becomingrelativelyloweris危险场景的关键输出，防止后续修改破坏既有行为。
     fun oneCellBecomingRelativelyLowerIsCritical() {
         val result = diagnoseBatteryHealth(
             capacityRecords = emptyList(),
@@ -38,6 +44,8 @@ class BatteryHealthDiagnosisTest {
     }
 
     @Test
+    //MARK:测试容量
+    //验证measured容量belowseventyfivepercentis危险场景的关键输出，防止后续修改破坏既有行为。
     fun measuredCapacityBelowSeventyFivePercentIsCritical() {
         val result = diagnoseBatteryHealth(
             capacityRecords = listOf(capacityRecord(37.0, 50.0)),
@@ -50,6 +58,8 @@ class BatteryHealthDiagnosisTest {
     }
 
     @Test
+    //MARK:测试诊断
+    //验证诊断staysinsufficientwithoutreal证据场景的关键输出，防止后续修改破坏既有行为。
     fun diagnosisStaysInsufficientWithoutRealEvidence() {
         val result = diagnoseBatteryHealth(
             capacityRecords = emptyList(),
@@ -62,6 +72,8 @@ class BatteryHealthDiagnosisTest {
     }
 
     @Test
+    //MARK:测试温差过滤
+    //验证verydifferent温度arenotcompared场景的关键输出，防止后续修改破坏既有行为。
     fun veryDifferentTemperaturesAreNotCompared() {
         val result = diagnoseBatteryHealth(
             capacityRecords = emptyList(),
@@ -76,6 +88,8 @@ class BatteryHealthDiagnosisTest {
         assertEquals(1, result.comparableFingerprintCount)
     }
 
+    //MARK:构造满充指纹
+    //构造指定日期和逐串电压的满充指纹，用于健康诊断的前后对比。
     private fun fingerprint(
         day: Int,
         cells: List<Int>,
@@ -88,6 +102,8 @@ class BatteryHealthDiagnosisTest {
         cellVoltagesMv = cells
     )
 
+    //MARK:测试容量记录
+    //构造一条满足健康评估条件的容量测试记录，用于验证 SOH 诊断。
     private fun capacityRecord(measured: Double, rated: Double) = CapacityHealthRecord(
         id = 1,
         recordedAtMillis = 1,

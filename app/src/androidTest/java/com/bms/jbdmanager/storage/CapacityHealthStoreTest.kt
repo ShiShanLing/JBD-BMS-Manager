@@ -9,16 +9,22 @@ import org.junit.Test
 import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
+//MARK:测试容量健康
+//CapacityHealthStoreTest 验证 CapacityHealthStore 的正常流程、边界输入和需要长期保持的回归行为。
 class CapacityHealthStoreTest {
     private val context = ApplicationProvider.getApplicationContext<android.content.Context>()
 
     @Before
+    //MARK:清理测试记录
+    //clearRecords 在每个用例执行前清理或建立隔离环境，防止本地残留数据影响断言。
     fun clearRecords() {
         context.getSharedPreferences("jbd_capacity_health", android.content.Context.MODE_PRIVATE)
             .edit().clear().commit()
     }
 
     @Test
+    //MARK:测记录持久化
+    //验证记录survivereloadandcanbedeleted发生后状态与持久化结果都符合业务规则。
     fun recordsSurviveReloadAndCanBeDeleted() {
         val store = CapacityHealthStore(context)
         store.add(CapacityHealthRecord(1L, 1_000L, 45.0, 50.0, 2_300.0, 10, 28.5, "第一次"))

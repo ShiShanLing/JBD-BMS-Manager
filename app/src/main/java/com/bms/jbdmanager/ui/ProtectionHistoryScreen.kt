@@ -34,6 +34,8 @@ import java.time.format.DateTimeFormatter
 import kotlin.math.roundToLong
 
 @Composable
+//MARK:保护历史页
+//ProtectionHistoryPage 组织保护历史页面的完整页面结构，组合内容区和操作入口，并把事件交给状态持有层。
 internal fun ProtectionHistoryPage(events: List<ProtectionEvent>) {
     val sorted = events.sortedByDescending { it.startedAtMillis }
     val activeCount = sorted.count { it.isActive }
@@ -92,6 +94,8 @@ internal fun ProtectionHistoryPage(events: List<ProtectionEvent>) {
 }
 
 @Composable
+//MARK:保护事件卡
+//ProtectionEventCard 绘制保护事件卡片卡片，将同一主题的标题、关键数值和辅助信息组合展示。
 private fun ProtectionEventCard(event: ProtectionEvent) {
     val color = protectionSeverityColor(event.severity)
     Card(shape = RoundedCornerShape(13.dp)) {
@@ -139,14 +143,20 @@ private fun ProtectionEventCard(event: ProtectionEvent) {
 }
 
 @Composable
+//MARK:保护等级颜色
+//protectionSeverityColor 按保护等级或数值范围选择语义颜色，区分正常、警告和危险状态。
 private fun protectionSeverityColor(severity: ProtectionEventSeverity): Color = when (severity) {
     ProtectionEventSeverity.Expected -> Color(0xFFFFC857)
     ProtectionEventSeverity.Warning -> AlertOrange
     ProtectionEventSeverity.Critical -> MaterialTheme.colorScheme.error
 }
 
+//MARK:带符号电流
+//signedCurrent 将当前转换为适合当前页面展示的文本，并统一精度、单位或正负号格式。
 private fun signedCurrent(currentA: Double): String = if (currentA > 0.0) "+${compactNumber(currentA)}" else compactNumber(currentA)
 
+//MARK:格式化保护
+//formatProtectionDuration 将保护转换为适合当前页面展示的文本，并统一精度、单位或正负号格式。
 private fun formatProtectionDuration(durationMillis: Long): String {
     val seconds = (durationMillis.coerceAtLeast(0L) / 1_000.0).roundToLong()
     return when {
@@ -158,6 +168,8 @@ private fun formatProtectionDuration(durationMillis: Long): String {
 
 private val protectionEventTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
 
+//MARK:格式化保护时
+//formatProtectionTime 将保护时间转换为适合当前页面展示的文本，并统一精度、单位或正负号格式。
 private fun formatProtectionTime(millis: Long): String = Instant.ofEpochMilli(millis)
     .atZone(ZoneId.systemDefault())
     .format(protectionEventTimeFormatter)

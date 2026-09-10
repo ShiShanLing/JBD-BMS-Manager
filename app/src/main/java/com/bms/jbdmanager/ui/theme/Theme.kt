@@ -22,6 +22,8 @@ private val BmsColors = darkColorScheme(
 )
 
 @Composable
+//MARK:应用主题
+//JbdBmsTheme 应用深色 BMS 配色和 Material 主题，为全部 Compose 页面提供统一颜色与排版。
 fun JbdBmsTheme(content: @Composable () -> Unit) {
     MaterialTheme(colorScheme = BmsColors, content = content)
 }

@@ -39,11 +39,15 @@ import com.bms.jbdmanager.model.diagnoseBatteryHealth
 import com.bms.jbdmanager.model.evaluateFullChargeDeltaTrend
 import java.util.Locale
 
+//MARK:历史页面目标
+//HistoryDestination 枚举历史的全部合法取值；新增状态时需要同步检查解析、存储和界面分支。
 private enum class HistoryDestination(val title: String) {
     Mileage("行程记录"), Protection("告警记录"), Capacity("容量健康"),
     FullChargeStats("满充统计"), Trend("电池趋势"), Diagnosis("健康诊断")
 }
 
+//MARK:历史菜单项
+//HistoryMenuEntry 将历史相关字段组合为不可变值，避免跨层传递时出现部分字段不同步。
 private data class HistoryMenuEntry(
     val title: String,
     val summary: String,
@@ -52,6 +56,8 @@ private data class HistoryMenuEntry(
 )
 
 @Composable
+//MARK:电池历史页
+//BatteryHistoryPage 组织电池历史页面的完整页面结构，组合内容区和操作入口，并把事件交给状态持有层。
 internal fun BatteryHistoryPage(
     state: BmsUiState,
     onLoadBatteryTrend: (BatteryTrendRange) -> Unit,
@@ -110,6 +116,8 @@ internal fun BatteryHistoryPage(
 }
 
 @Composable
+//MARK:记录记录历史
+//RecordHistoryMenu 展示记录历史的可选入口，突出当前项并通过回调上报切换结果。
 private fun RecordHistoryMenu(state: BmsUiState, open: (HistoryDestination) -> Unit) {
     val trips = state.mileageHistory.sessions
     val totalKm = trips.sumOf { it.distanceMeters } / 1_000.0
@@ -130,6 +138,8 @@ private fun RecordHistoryMenu(state: BmsUiState, open: (HistoryDestination) -> U
 }
 
 @Composable
+//MARK:健康历史菜单
+//HealthHistoryMenu 展示健康历史的可选入口，突出当前项并通过回调上报切换结果。
 private fun HealthHistoryMenu(state: BmsUiState, open: (HistoryDestination) -> Unit) {
     val formalRecords = state.capacityHealthRecords.filter { it.qualifiedForHealth }
     val latestCapacity = formalRecords.maxByOrNull { it.recordedAtMillis }
@@ -168,6 +178,8 @@ private fun HealthHistoryMenu(state: BmsUiState, open: (HistoryDestination) -> U
 }
 
 @Composable
+//MARK:数据历史菜单
+//DataHistoryMenu 展示数据历史的可选入口，突出当前项并通过回调上报切换结果。
 private fun DataHistoryMenu(state: BmsUiState, onShowDataManagement: () -> Unit) {
         val localRecordCount = state.mileageHistory.sessions.size + state.capacityHealthRecords.size +
         state.protectionEvents.size + state.batteryTrend.fullChargeFingerprints.size +
@@ -185,6 +197,8 @@ private fun DataHistoryMenu(state: BmsUiState, onShowDataManagement: () -> Unit)
 }
 
 @Composable
+//MARK:历史菜单项
+//HistoryMenu 展示历史的可选入口，突出当前项并通过回调上报切换结果。
 private fun HistoryMenu(
     heading: String,
     description: String,
@@ -226,6 +240,8 @@ private fun HistoryMenu(
 }
 
 @Composable
+//MARK:历史详情头部
+//HistoryDetailHeader 绘制历史组件，并根据参数决定文案、数值、颜色及交互状态。
 internal fun HistoryDetailHeader(title: String, onBack: () -> Unit) {
     Row(
         Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 2.dp),
@@ -244,6 +260,8 @@ internal fun HistoryDetailHeader(title: String, onBack: () -> Unit) {
 }
 
 @Composable
+//MARK:健康诊断页
+//BatteryHealthDiagnosisPage 组织电池健康诊断页面的完整页面结构，组合内容区和操作入口，并把事件交给状态持有层。
 private fun BatteryHealthDiagnosisPage(state: BmsUiState) {
     val diagnosis = rememberHealthDiagnosis(state)
     LazyColumn(
@@ -265,6 +283,8 @@ private fun BatteryHealthDiagnosisPage(state: BmsUiState) {
 }
 
 @Composable
+//MARK:计算健康诊断
+//rememberHealthDiagnosis 计算或读取健康诊断所需结果，供页面布局使用且不直接修改上层业务状态。
 private fun rememberHealthDiagnosis(state: BmsUiState) = remember(
     state.capacityHealthRecords,
     state.batteryTrend.fullChargeFingerprints,
@@ -283,6 +303,8 @@ private fun rememberHealthDiagnosis(state: BmsUiState) = remember(
 }
 
 @Composable
+//MARK:健康菜单颜色
+//healthMenuColor 按健康等级或数值范围选择语义颜色，区分正常、警告和危险状态。
 private fun healthMenuColor(soh: Double): Color = when {
     soh < 75.0 -> MaterialTheme.colorScheme.error
     soh < 80.0 -> Color(0xFFFF8A3D)
@@ -291,6 +313,8 @@ private fun healthMenuColor(soh: Double): Color = when {
 }
 
 @Composable
+//MARK:诊断菜单颜色
+//diagnosisMenuColor 按诊断等级或数值范围选择语义颜色，区分正常、警告和危险状态。
 private fun diagnosisMenuColor(level: HealthDiagnosisLevel): Color = when (level) {
     HealthDiagnosisLevel.Critical -> MaterialTheme.colorScheme.error
     HealthDiagnosisLevel.Warning -> Color(0xFFFF8A3D)
@@ -300,6 +324,8 @@ private fun diagnosisMenuColor(level: HealthDiagnosisLevel): Color = when (level
 }
 
 @Composable
+//MARK:压差菜单颜色
+//fullChargeDeltaMenuColor 按满充充电压差等级或数值范围选择语义颜色，区分正常、警告和危险状态。
 private fun fullChargeDeltaMenuColor(state: BmsUiState): Color {
     val direction = evaluateFullChargeDeltaTrend(state.batteryTrend.fullChargeDeltas).direction
     return when (direction) {
@@ -309,6 +335,8 @@ private fun fullChargeDeltaMenuColor(state: BmsUiState): Color {
     }
 }
 
+//MARK:压差菜单摘要
+//fullChargeDeltaMenuSummary 绘制满充充电压差摘要组件，并根据参数决定文案、数值、颜色及交互状态。
 private fun fullChargeDeltaMenuSummary(state: BmsUiState): String {
     val trend = evaluateFullChargeDeltaTrend(state.batteryTrend.fullChargeDeltas)
     val count = trend.samples.size
@@ -325,5 +353,7 @@ private fun fullChargeDeltaMenuSummary(state: BmsUiState): String {
     }
 }
 
+//MARK:历史数字格式
+//historyNumber 绘制历史组件，并根据参数决定文案、数值、颜色及交互状态。
 private fun historyNumber(value: Double): String =
     String.format(Locale.US, "%.1f", value).trimEnd('0').trimEnd('.')

@@ -5,9 +5,13 @@ import com.bms.jbdmanager.model.AutomaticCapacityTestPhase
 import com.bms.jbdmanager.model.AutomaticCapacityTestState
 import org.json.JSONObject
 
+//MARK:容量测试存储
+//AutomaticCapacityTestStore 封装本地持久化、兼容解析和写回规则，用于处理自动容量测试。
 internal class AutomaticCapacityTestStore(context: Context) {
     private val preferences = context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
 
+    //MARK:读取记录
+    //恢复自动容量测试的阶段、起止读数、累计放电量和质量指标；损坏内容回退为空闲状态。
     fun load(): AutomaticCapacityTestState {
         val raw = preferences.getString(KEY_STATE, null) ?: return AutomaticCapacityTestState()
         return runCatching {
@@ -42,6 +46,8 @@ internal class AutomaticCapacityTestStore(context: Context) {
         }.getOrDefault(AutomaticCapacityTestState())
     }
 
+    //MARK:保存状态
+    //把自动容量测试的完整进度编码为 JSON，使断线或应用重启后仍可继续同一测试。
     fun save(state: AutomaticCapacityTestState) {
         val item = JSONObject().apply {
             put("phase", state.phase.name)
@@ -73,12 +79,22 @@ internal class AutomaticCapacityTestStore(context: Context) {
         preferences.edit().putString(KEY_STATE, item.toString()).apply()
     }
 
+    //MARK:清空数据
+    //clear 清除该模块保存的状态，使下一次读取回到未记录时的默认值。
     fun clear() = preferences.edit().remove(KEY_STATE).apply()
 
+    //MARK:可选小数
+    //optionalDouble 读取可选小数字段；键缺失或值为 JSON null 时返回 Kotlin null。
     private fun JSONObject.optionalDouble(key: String): Double? = if (has(key) && !isNull(key)) getDouble(key) else null
+    //MARK:可选整数
+    //optionalInt 读取可选整数字段；键缺失或值为 JSON null 时返回 Kotlin null。
     private fun JSONObject.optionalInt(key: String): Int? = if (has(key) && !isNull(key)) getInt(key) else null
+    //MARK:可选长整
+    //optionalLong 读取可选长整数字段；键缺失或值为 JSON null 时返回 Kotlin null。
     private fun JSONObject.optionalLong(key: String): Long? = if (has(key) && !isNull(key)) getLong(key) else null
 
+    //MARK:常量配置
+    //声明自动容量测试 JSON 的存储文件和根键，测试模型字段由 load/save 成对维护。
     private companion object {
         const val PREFERENCES_NAME = "jbd_automatic_capacity_test"
         const val KEY_STATE = "state"

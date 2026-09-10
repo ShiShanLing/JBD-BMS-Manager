@@ -22,6 +22,8 @@ import com.bms.jbdmanager.model.BmsUiState
 
 
 @Composable
+//MARK:续航测试页
+//RangeTestPage 组织续航测试页面的完整页面结构，组合内容区和操作入口，并把事件交给状态持有层。
 internal fun RangeTestPage(
     state: BmsUiState,
     onRequestLocationPermission: () -> Unit,

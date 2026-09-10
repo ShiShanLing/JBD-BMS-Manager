@@ -47,6 +47,8 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
+//MARK:趋势指标
+//TrendMetric 枚举趋势指标的全部合法取值；新增状态时需要同步检查解析、存储和界面分支。
 private enum class TrendMetric(val label: String, val unit: String) {
     Voltage("总压", "V"),
     Current("电流", "A"),
@@ -57,6 +59,8 @@ private enum class TrendMetric(val label: String, val unit: String) {
 }
 
 @Composable
+//MARK:电池趋势页
+//BatteryTrendPage 组织电池趋势页面的完整页面结构，组合内容区和操作入口，并把事件交给状态持有层。
 internal fun BatteryTrendPage(
     trend: BatteryTrendState,
     onLoadRange: (BatteryTrendRange) -> Unit
@@ -90,6 +94,8 @@ internal fun BatteryTrendPage(
 }
 
 @Composable
+//MARK:满充对比卡
+//FullChargeComparisonCard 绘制满充充电卡片卡片，将同一主题的标题、关键数值和辅助信息组合展示。
 private fun FullChargeComparisonCard(fingerprints: List<FullChargeFingerprint>) {
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f)),
@@ -172,6 +178,8 @@ private fun FullChargeComparisonCard(fingerprints: List<FullChargeFingerprint>) 
 }
 
 @Composable
+//MARK:趋势范围选择
+//TrendRangeSelector 展示趋势续航的可选入口，突出当前项并通过回调上报切换结果。
 private fun TrendRangeSelector(selected: BatteryTrendRange, onSelect: (BatteryTrendRange) -> Unit) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
         BatteryTrendRange.entries.forEach { range ->
@@ -195,6 +203,8 @@ private fun TrendRangeSelector(selected: BatteryTrendRange, onSelect: (BatteryTr
 }
 
 @Composable
+//MARK:趋势指标选择
+//TrendMetricSelector 展示趋势指标的可选入口，突出当前项并通过回调上报切换结果。
 private fun TrendMetricSelector(selected: TrendMetric, onSelect: (TrendMetric) -> Unit) {
     Row(
         Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
@@ -221,6 +231,8 @@ private fun TrendMetricSelector(selected: TrendMetric, onSelect: (TrendMetric) -
 }
 
 @Composable
+//MARK:趋势图表卡
+//TrendChartCard 绘制趋势图表卡片卡片，将同一主题的标题、关键数值和辅助信息组合展示。
 private fun TrendChartCard(trend: BatteryTrendState, metric: TrendMetric) {
     val samples = remember(trend.points, metric) {
         trend.points.mapNotNull { point -> metric.valueOf(point)?.let { point.timestampMillis to it } }
@@ -283,6 +295,8 @@ private fun TrendChartCard(trend: BatteryTrendState, metric: TrendMetric) {
 }
 
 @Composable
+//MARK:趋势统计项
+//TrendStat 绘制趋势组件，并根据参数决定文案、数值、颜色及交互状态。
 private fun TrendStat(label: String, value: String) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Text(label, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 9.sp)
@@ -291,6 +305,8 @@ private fun TrendStat(label: String, value: String) {
 }
 
 @Composable
+//MARK:趋势折线图
+//TrendLineChart 根据趋势图表样本计算坐标和比例，并绘制趋势、柱形或进度信息。
 private fun TrendLineChart(values: List<Double>, color: Color) {
     val gridColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.18f)
     Canvas(Modifier.fillMaxWidth().height(170.dp)) {
@@ -315,6 +331,8 @@ private fun TrendLineChart(values: List<Double>, color: Color) {
     }
 }
 
+//MARK:读取指标值
+//valueOf 绘制值组件，并根据参数决定文案、数值、颜色及交互状态。
 private fun TrendMetric.valueOf(point: BatteryTrendPoint): Double? = when (this) {
     TrendMetric.Voltage -> point.totalVoltageV
     TrendMetric.Current -> point.currentA
@@ -325,6 +343,8 @@ private fun TrendMetric.valueOf(point: BatteryTrendPoint): Double? = when (this)
 }
 
 @Composable
+//MARK:趋势指标颜色
+//color 按color等级或数值范围选择语义颜色，区分正常、警告和危险状态。
 private fun TrendMetric.color(): Color = when (this) {
     TrendMetric.Current -> MaterialTheme.colorScheme.tertiary
     TrendMetric.Delta -> Color(0xFFFFA726)
@@ -332,11 +352,15 @@ private fun TrendMetric.color(): Color = when (this) {
     else -> MaterialTheme.colorScheme.primary
 }
 
+//MARK:格式化数值
+//按照趋势指标要求的小数位格式化图表数值。
 private fun TrendMetric.format(value: Double): String = when (this) {
     TrendMetric.Soc, TrendMetric.Delta, TrendMetric.MinimumCell -> "${compact(value, 1)} $unit"
     else -> "${compact(value, 2)} $unit"
 }
 
+//MARK:压缩数值
+//缩短图表坐标轴数字并删除末尾零，减少标签相互遮挡。
 private fun compact(value: Double, decimals: Int): String {
     val formatted = "%.${decimals}f".format(Locale.US, value)
     return formatted.trimEnd('0').trimEnd('.').let { if (it == "-0") "0" else it }
@@ -346,10 +370,14 @@ private val trendHourFormatter = DateTimeFormatter.ofPattern("HH:mm")
 private val trendDayFormatter = DateTimeFormatter.ofPattern("MM-dd HH:mm")
 private val fingerprintDateFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd")
 
+//MARK:格式化指纹日
+//formatFingerprintDate 将特征样本转换为适合当前页面展示的文本，并统一精度、单位或正负号格式。
 private fun formatFingerprintDate(timestamp: Long): String = fingerprintDateFormatter.format(
     Instant.ofEpochMilli(timestamp).atZone(ZoneId.systemDefault())
 )
 
+//MARK:格式化趋势时
+//formatTrendTime 将趋势时间转换为适合当前页面展示的文本，并统一精度、单位或正负号格式。
 private fun formatTrendTime(timestamp: Long, range: BatteryTrendRange): String {
     val time = Instant.ofEpochMilli(timestamp).atZone(ZoneId.systemDefault())
     return if (range == BatteryTrendRange.SevenDays || range == BatteryTrendRange.ThirtyDays) {

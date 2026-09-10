@@ -55,6 +55,8 @@ import com.bms.jbdmanager.ui.theme.JbdBmsTheme
 import kotlin.math.roundToInt
 
 @Composable
+//MARK:保护参数页
+//ProtectionParamsPage 组织保护参数页面的完整页面结构，组合内容区和操作入口，并把事件交给状态持有层。
 internal fun ProtectionParamsPage(
     state: BmsUiState,
     onRefresh: () -> Unit,
@@ -129,6 +131,8 @@ internal fun ProtectionParamsPage(
 }
 
 @Composable
+//MARK:充电状态区
+//ChargeStatusSection 绘制充电状态组件，并根据参数决定文案、数值、颜色及交互状态。
 private fun ChargeStatusSection(state: BmsUiState) {
     val info = state.basicInfo
     Card(
@@ -226,6 +230,8 @@ private fun ChargeStatusSection(state: BmsUiState) {
 }
 
 @Composable
+//MARK:充电温度行
+//ChargeTemperatureLine 在一行内排列充电温度的名称、数值和状态，统一对齐方式与间距。
 private fun ChargeTemperatureLine(
     temperatures: List<Double>,
     highLimitC: Double?,
@@ -257,6 +263,8 @@ private fun ChargeTemperatureLine(
 }
 
 @Composable
+//MARK:状态开关项
+//StatusToggleChip 展示状态的可选入口，突出当前项并通过回调上报切换结果。
 private fun StatusToggleChip(label: String, enabled: Boolean) {
     val color = if (enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
     Row(
@@ -279,6 +287,8 @@ private fun StatusToggleChip(label: String, enabled: Boolean) {
 }
 
 @Composable
+//MARK:充电状态标签
+//ChargeStatusChip 展示充电状态的可选入口，突出当前项并通过回调上报切换结果。
 private fun ChargeStatusChip(charging: Boolean, full: Boolean) {
     val (label, color) = when {
         full -> "已充满" to MaterialTheme.colorScheme.primary
@@ -325,6 +335,8 @@ private fun ChargeStatusChip(charging: Boolean, full: Boolean) {
 }
 
 @Composable
+//MARK:充电电量条
+//ChargeSocBar 根据充电样本计算坐标和比例，并绘制趋势、柱形或进度信息。
 private fun ChargeSocBar(
     progress: Float,
     charging: Boolean,
@@ -379,6 +391,8 @@ private fun ChargeSocBar(
 }
 
 @Composable
+//MARK:充电时长卡
+//ChargeEtaHero 绘制充电组件，并根据参数决定文案、数值、颜色及交互状态。
 private fun ChargeEtaHero(
     full: Boolean,
     charging: Boolean,
@@ -405,6 +419,8 @@ private fun ChargeEtaHero(
 }
 
 @Composable
+//MARK:充电主指标
+//ChargeHeroMetric 绘制充电指标组件，并根据参数决定文案、数值、颜色及交互状态。
 private fun ChargeHeroMetric(
     label: String,
     value: String,
@@ -431,6 +447,8 @@ private fun ChargeHeroMetric(
 }
 
 @Composable
+//MARK:实时单体底栏
+//CellLiveFooter 绘制单体组件，并根据参数决定文案、数值、颜色及交互状态。
 private fun CellLiveFooter(
     cells: CellSummary?,
     info: BmsBasicInfo
@@ -466,6 +484,8 @@ private fun CellLiveFooter(
 }
 
 @Composable
+//MARK:参数分组
+//ParamGroup 绘制一组同类保护参数，包含分组标题及内部参数单元格。
 private fun ParamGroup(
     title: String,
     content: @Composable () -> Unit
@@ -499,6 +519,8 @@ private fun ParamGroup(
 }
 
 @Composable
+//MARK:参数对
+//ParamPair 把两个相关保护阈值并排展示，空间不足时保持一致宽度。
 private fun ParamPair(
     leftLabel: String,
     leftValue: String,
@@ -520,6 +542,8 @@ private fun ParamPair(
 }
 
 @Composable
+//MARK:保护参数格
+//ParamCell 绘制单体组件，并根据参数决定文案、数值、颜色及交互状态。
 private fun ParamCell(label: String, value: String, modifier: Modifier = Modifier) {
     Row(
         modifier = modifier,
@@ -544,6 +568,8 @@ private fun ParamCell(label: String, value: String, modifier: Modifier = Modifie
 }
 
 @Composable
+//MARK:刷新按钮
+//绘制紧凑的参数刷新按钮；加载期间显示旋转进度并禁止重复点击。
 private fun CompactRefreshButton(loading: Boolean, onRefresh: () -> Unit) {
     OutlinedButton(
         onClick = onRefresh,
@@ -557,20 +583,30 @@ private fun CompactRefreshButton(loading: Boolean, onRefresh: () -> Unit) {
     }
 }
 
+//MARK:电压文字
+//把可空电压阈值格式化为伏特文本，未知参数显示占位符。
 private fun voltageText(value: Double?): String =
     value?.let { format(it, "V", if (it >= 10.0) 2 else 3) } ?: "--"
 
+//MARK:单体电压文字
+//cellVoltageText 绘制单体组件，并根据参数决定文案、数值、颜色及交互状态。
 private fun cellVoltageText(millivolts: Int?): String =
     millivolts?.let { format(it / 1000.0, "V", 3) } ?: "--"
 
+//MARK:电流文字
+//currentText 将当前转换为适合当前页面展示的文本，并统一精度、单位或正负号格式。
 private fun currentText(value: Double?): String =
     value?.let { format(it, "A", 2) } ?: "--"
 
+//MARK:温度文字
+//把可空温度阈值格式化为摄氏度文本，未知参数显示占位符。
 private fun tempText(value: Double?): String =
     value?.let { format(it, "℃", 1) } ?: "--"
 
 @Preview(name = "保护参数", showBackground = true, widthDp = 392, heightDp = 850)
 @Composable
+//MARK:保护参数预览
+//ProtectionParamsPreview 使用固定演示数据预览保护参数布局，只参与调试构建而不读取真实设备。
 private fun ProtectionParamsPreview() {
     JbdBmsTheme {
         Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {

@@ -21,10 +21,14 @@ import org.junit.runner.RunWith
 import java.io.File
 
 @RunWith(AndroidJUnit4::class)
+//MARK:测试康PDF
+//BatteryHealthPdfGeneratorTest 验证 BatteryHealthPdfGenerator 的正常流程、边界输入和需要长期保持的回归行为。
 class BatteryHealthPdfGeneratorTest {
     private val context = ApplicationProvider.getApplicationContext<android.content.Context>()
 
     @Test
+    //MARK:测试报告
+    //验证reportismultipageandeverypagerendersvisiblecontent场景的关键输出，防止后续修改破坏既有行为。
     fun reportIsMultiPageAndEveryPageRendersVisibleContent() {
         val output = File(context.getExternalFilesDir(null), "battery-health-report-sample.pdf")
         output.outputStream().use { BatteryHealthPdfGenerator().write(it, sampleState()) }
@@ -52,6 +56,8 @@ class BatteryHealthPdfGeneratorTest {
         }
     }
 
+    //MARK:测试样本状态
+    //构造包含基本信息、单体、行程和历史的完整测试状态，供报告或快照用例复用。
     private fun sampleState(): BmsUiState {
         val now = System.currentTimeMillis()
         val baselineCells = listOf(3492, 3494, 3491, 3493, 3495, 3492, 3494, 3493, 3492, 3494, 3493, 3492, 3495, 3493, 3494, 3492, 3493)

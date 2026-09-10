@@ -5,8 +5,12 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
+//MARK:测试更新
+//AppUpdateManifestParserTest 验证 AppUpdateManifestParser 的正常流程、边界输入和需要长期保持的回归行为。
 class AppUpdateManifestParserTest {
     @Test
+    //MARK:测试解析清单
+    //验证解析readslatest清单能够按预期解析字段、单位和边界值。
     fun parseReadsLatestManifest() {
         val info = AppUpdateManifestParser.parse(
             """
@@ -31,6 +35,8 @@ class AppUpdateManifestParserTest {
     }
 
     @Test
+    //MARK:测试更新说明
+    //验证notessinceincludesskippedversionsnewestfirst场景的关键输出，防止后续修改破坏既有行为。
     fun notesSinceIncludesSkippedVersionsNewestFirst() {
         val info = AppUpdateManifestParser.parse(
             """
@@ -53,6 +59,8 @@ class AppUpdateManifestParserTest {
     }
 
     @Test
+    //MARK:测试更新提示
+    //验证策略promptsonlyfor新版本unskippedversions场景的关键输出，防止后续修改破坏既有行为。
     fun policyPromptsOnlyForNewerUnskippedVersions() {
         val info = AppUpdateInfo(
             versionCode = 14,

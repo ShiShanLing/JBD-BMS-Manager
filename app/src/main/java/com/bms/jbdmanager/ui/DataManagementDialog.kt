@@ -23,6 +23,8 @@ import androidx.compose.ui.unit.sp
 import com.bms.jbdmanager.model.DataManagementState
 
 @Composable
+//MARK:数据管理弹框
+//DataManagementDialog 展示数据弹框弹框，按当前状态控制按钮可用性，并通过回调提交或取消操作。
 internal fun DataManagementDialog(
     state: DataManagementState,
     onDismiss: () -> Unit,

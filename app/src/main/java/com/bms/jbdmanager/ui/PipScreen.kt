@@ -54,6 +54,8 @@ import kotlin.math.abs
 import kotlin.math.roundToInt
 
 @Composable
+//MARK:画中画页面
+//PipScreen 组织页面的完整页面结构，组合内容区和操作入口，并把事件交给状态持有层。
 internal fun PipScreen(state: BmsUiState) {
     val chargingModeResolver = remember { PipChargingModeResolver() }
     val info = state.basicInfo
@@ -90,9 +92,13 @@ internal fun PipScreen(state: BmsUiState) {
     }
 }
 
+//MARK:计算画中画
+//resolvePipContentScale 计算或读取resolvePipContentScale所需结果，供页面布局使用且不直接修改上层业务状态。
 internal fun resolvePipContentScale(widthDp: Float, heightDp: Float): Float =
     minOf(widthDp / 240f, heightDp / 135f).coerceIn(0.72f, 1.55f)
 
+//MARK:画中画布局
+//PipLayoutSpec 保存某档小窗尺寸使用的内容缩放、边距、间隔和辅助信息显示策略。
 private data class PipLayoutSpec(
     val horizontalPadding: Dp,
     val verticalPadding: Dp,
@@ -118,6 +124,8 @@ private data class PipLayoutSpec(
     val topMetricValueSize: TextUnit
 )
 
+//MARK:画中画布局
+//pipLayoutSpec 根据画中画实际宽高划分紧凑、普通和宽屏布局，并计算统一缩放值。
 private fun pipLayoutSpec(widthDp: Float, heightDp: Float): PipLayoutSpec {
     val scale = resolvePipContentScale(widthDp, heightDp)
     return PipLayoutSpec(
@@ -147,6 +155,8 @@ private fun pipLayoutSpec(widthDp: Float, heightDp: Float): PipLayoutSpec {
 }
 
 @Composable
+//MARK:骑行画中画
+//PipRidingLayout 绘制骑行小窗口的 SOC、里程、续航、电流和速度区域，并适配窗口尺寸。
 private fun PipRidingLayout(state: BmsUiState, layout: PipLayoutSpec) {
     val info = state.basicInfo
     val discharging = info != null && info.currentA < -0.05
@@ -256,6 +266,8 @@ private fun PipRidingLayout(state: BmsUiState, layout: PipLayoutSpec) {
 }
 
 @Composable
+//MARK:GPS行程窗
+//PipMileageOnlyLayout 绘制里程组件，并根据参数决定文案、数值、颜色及交互状态。
 private fun PipMileageOnlyLayout(state: BmsUiState, layout: PipLayoutSpec) {
     val trip = state.trip
     val remainingKm = trip.mileageCountdownRemainingKm
@@ -399,6 +411,8 @@ private fun PipMileageOnlyLayout(state: BmsUiState, layout: PipLayoutSpec) {
 }
 
 @Composable
+//MARK:画中画速度项
+//PipInlineSpeedMetric 绘制速度指标组件，并根据参数决定文案、数值、颜色及交互状态。
 private fun PipInlineSpeedMetric(
     label: String,
     speed: String,
@@ -446,12 +460,16 @@ private fun PipInlineSpeedMetric(
     }
 }
 
+//MARK:充电模式判断
+//PipChargingModeResolver 根据连续样本稳定判定当前显示模式，用于处理充电。
 internal class PipChargingModeResolver {
     private var lastMovingAtMillis: Long? = null
     private var chargingCandidateSinceMillis: Long? = null
     private var chargingExitSinceMillis: Long? = null
     private var charging = false
 
+    //MARK:更新状态
+    //依据连续电流与速度样本稳定判定放电、回收、充电或静置，防止小窗口频繁切换布局。
     fun update(currentA: Double?, speedKmh: Double, nowMillis: Long): Boolean {
         if (speedKmh >= MOVING_SPEED_KMH) {
             lastMovingAtMillis = nowMillis
@@ -498,11 +516,15 @@ internal class PipChargingModeResolver {
         return charging
     }
 
+    //MARK:重置布局候选
+    //resetCandidates 清空画中画充电模式的候选状态和连续命中次数，保留当前稳定模式。
     private fun resetCandidates() {
         chargingCandidateSinceMillis = null
         chargingExitSinceMillis = null
     }
 
+    //MARK:常量配置
+    //定义充电、回收模式切换所需的电流阈值、连续样本数和最短保持时间，防止布局抖动。
     private companion object {
         const val MOVING_SPEED_KMH = 1.0
         const val CHARGING_ENTRY_CURRENT_A = 7.0
@@ -514,6 +536,8 @@ internal class PipChargingModeResolver {
 }
 
 @Composable
+//MARK:画中画电量条
+//PipRidingSocBar 根据PipRidingSocBar样本计算坐标和比例，并绘制趋势、柱形或进度信息。
 private fun PipRidingSocBar(
     progress: Float,
     moving: Boolean,
@@ -570,6 +594,8 @@ private fun PipRidingSocBar(
 }
 
 @Composable
+//MARK:充电画中画
+//PipChargingLayout 绘制充电组件，并根据参数决定文案、数值、颜色及交互状态。
 private fun PipChargingLayout(state: BmsUiState, layout: PipLayoutSpec) {
     val info = state.basicInfo ?: return
     val cells = state.cells
@@ -633,6 +659,8 @@ private fun PipChargingLayout(state: BmsUiState, layout: PipLayoutSpec) {
 }
 
 @Composable
+//MARK:画中画电量
+//PipSocBlock 绘制画中画中的 SOC 大数字、标签和剩余容量信息。
 private fun PipSocBlock(soc: Int?, accent: Color, layout: PipLayoutSpec) {
     Column(horizontalAlignment = Alignment.Start) {
         Text(
@@ -651,6 +679,8 @@ private fun PipSocBlock(soc: Int?, accent: Color, layout: PipLayoutSpec) {
 }
 
 @Composable
+//MARK:画中画指标
+//PipMetric 绘制指标组件，并根据参数决定文案、数值、颜色及交互状态。
 private fun PipMetric(
     label: String,
     value: String,
@@ -692,6 +722,8 @@ private fun PipMetric(
 }
 
 @Composable
+//MARK:画中画充电条
+//PipChargeBar 根据充电样本计算坐标和比例，并绘制趋势、柱形或进度信息。
 private fun PipChargeBar(progress: Float, accent: Color, height: Dp) {
     val fill = progress.coerceIn(0f, 1f)
     Box(
@@ -710,6 +742,8 @@ private fun PipChargeBar(progress: Float, accent: Color, height: Dp) {
     }
 }
 
+//MARK:格式化时长
+//将预计充满秒数转换为画中画可容纳的小时分钟文本，未知时间显示占位符。
 private fun formatEta(totalMinutes: Int): String {
     val hours = totalMinutes / 60
     val minutes = totalMinutes % 60
@@ -722,6 +756,8 @@ private fun formatEta(totalMinutes: Int): String {
 
 @Preview(name = "小窗-骑行", widthDp = 240, heightDp = 135, showBackground = true)
 @Composable
+//MARK:画中画预览
+//PipRidingPreview 使用固定演示数据预览PipRidingPreview布局，只参与调试构建而不读取真实设备。
 private fun PipRidingPreview() {
     JbdBmsTheme {
         Surface {
@@ -738,6 +774,8 @@ private fun PipRidingPreview() {
 
 @Preview(name = "小窗-充电", widthDp = 240, heightDp = 135, showBackground = true)
 @Composable
+//MARK:充电窗预览
+//PipChargingPreview 使用固定演示数据预览充电布局，只参与调试构建而不读取真实设备。
 private fun PipChargingPreview() {
     JbdBmsTheme {
         Surface {

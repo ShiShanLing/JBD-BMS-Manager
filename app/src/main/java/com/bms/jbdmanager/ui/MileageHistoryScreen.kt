@@ -58,6 +58,8 @@ import java.time.YearMonth
 import java.time.temporal.TemporalAdjusters
 
 @Composable
+//MARK:里程历史页
+//MileageHistoryPage 组织里程历史页面的完整页面结构，组合内容区和操作入口，并把事件交给状态持有层。
 internal fun MileageHistoryPage(history: MileageHistoryState) {
     var period by remember { mutableStateOf(MileagePeriod.Day) }
     var calendarMonth by remember { mutableIntStateOf(YearMonth.now().monthValue) }
@@ -143,6 +145,8 @@ internal fun MileageHistoryPage(history: MileageHistoryState) {
 }
 
 @Composable
+//MARK:里程摘要卡
+//MileageSummaryCard 绘制里程摘要卡片卡片，将同一主题的标题、关键数值和辅助信息组合展示。
 private fun MileageSummaryCard(totalKm: Double, periodLabel: String, tripCount: Int) {
     Card(
         colors = CardDefaults.cardColors(
@@ -170,6 +174,8 @@ private fun MileageSummaryCard(totalKm: Double, periodLabel: String, tripCount: 
 }
 
 @Composable
+//MARK:里程周期选择
+//MileagePeriodSelector 展示里程的可选入口，突出当前项并通过回调上报切换结果。
 private fun MileagePeriodSelector(selected: MileagePeriod, onSelect: (MileagePeriod) -> Unit) {
     val labels = listOf(
         MileagePeriod.Day to "日",
@@ -201,6 +207,8 @@ private fun MileagePeriodSelector(selected: MileagePeriod, onSelect: (MileagePer
 }
 
 @Composable
+//MARK:里程柱状图
+//MileageBarChart 根据里程图表样本计算坐标和比例，并绘制趋势、柱形或进度信息。
 private fun MileageBarChart(
     buckets: List<MileageBucket>,
     accent: Color,
@@ -284,13 +292,19 @@ private fun MileageBarChart(
     }
 }
 
+//MARK:图表滚动目标
+//MileageChartScrollTarget 定义里程图表的封闭结果类型，使调用方能够穷举处理每一种返回情况。
 private sealed interface MileageChartScrollTarget {
+    //MARK:图表中心位置
+    //CenterIndex 保存滚动图表中最靠近视口中心的数据下标及其与中心点的距离。
     data class CenterIndex(val index: Int) : MileageChartScrollTarget
     data object ScrollToEnd : MileageChartScrollTarget
     data object None : MileageChartScrollTarget
 }
 
 @Composable
+//MARK:里程图柱
+//MileageBarColumn 绘制里程组件，并根据参数决定文案、数值、颜色及交互状态。
 private fun MileageBarColumn(
     bucket: MileageBucket,
     maxKm: Double,
@@ -365,6 +379,8 @@ private fun MileageBarColumn(
 }
 
 @Composable
+//MARK:里程日历卡
+//MileageCalendarCard 绘制里程卡片卡片，将同一主题的标题、关键数值和辅助信息组合展示。
 private fun MileageCalendarCard(
     yearMonth: YearMonth,
     history: MileageHistoryState,
@@ -444,6 +460,8 @@ private val CalendarDataDateColor = Color(0xFF141414)
 private val CalendarDataKmColor = Color(0xFF505050)
 
 @Composable
+//MARK:里程日历格
+//MileageCalendarCell 绘制里程单体组件，并根据参数决定文案、数值、颜色及交互状态。
 private fun MileageCalendarCell(
     record: DailyMileage?,
     selected: Boolean,
@@ -504,6 +522,8 @@ private fun MileageCalendarCell(
 
 @Preview(name = "里程统计", showBackground = true, widthDp = 392, heightDp = 850)
 @Composable
+//MARK:里程历史预览
+//MileageHistoryPreview 使用固定演示数据预览里程历史布局，只参与调试构建而不读取真实设备。
 private fun MileageHistoryPreview() {
     JbdBmsTheme {
         Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {

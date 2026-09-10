@@ -9,18 +9,23 @@ import java.time.format.TextStyle
 import java.time.temporal.TemporalAdjusters
 import java.util.Locale
 
+//MARK:会话记录
+//TripSessionRecord 表示一条独立的行程会话记录，包含排序、统计、持久化或报告展示所需字段。
 data class TripSessionRecord(
     val startedAtMillis: Long,
     val finishedAtMillis: Long,
     val distanceMeters: Double,
     val consumedAh: Double,
-    val consumedWh: Double
+    val consumedWh: Double,
+    val maximumRegeneration: RegenerationPeak? = null
 ) {
     val distanceKm: Double get() = distanceMeters / 1_000.0
     val date: LocalDate
         get() = Instant.ofEpochMilli(startedAtMillis).atZone(ZoneId.systemDefault()).toLocalDate()
 }
 
+//MARK:每日里程
+//DailyMileage 将里程相关字段组合为不可变值，避免跨层传递时出现部分字段不同步。
 data class DailyMileage(
     val date: LocalDate,
     val distanceMeters: Double,
@@ -31,13 +36,19 @@ data class DailyMileage(
     val distanceKm: Double get() = distanceMeters / 1_000.0
 }
 
+//MARK:里程统计周期
+//MileagePeriod 枚举里程的全部合法取值；新增状态时需要同步检查解析、存储和界面分支。
 enum class MileagePeriod { Day, Week, Month, Year }
 
+//MARK:里程摘要
+//MileagePeriodSummary 汇总一次里程摘要的计算或读取结果，调用方无需再从原始字段重复推导。
 data class MileagePeriodSummary(
     val distanceKm: Double,
     val tripCount: Int
 )
 
+//MARK:里程统计区间
+//MileageBucket 将里程相关字段组合为不可变值，避免跨层传递时出现部分字段不同步。
 data class MileageBucket(
     val label: String,
     val distanceMeters: Double,
@@ -47,11 +58,19 @@ data class MileageBucket(
     val distanceKm: Double get() = distanceMeters / 1_000.0
 }
 
+//MARK:历史状态
+//MileageHistoryState 保存里程历史状态的当前快照；更新时通过 copy 生成新对象，使 StateFlow 能准确通知界面。
 data class MileageHistoryState(
     val sessions: List<TripSessionRecord> = emptyList(),
     val activeTripDistanceMeters: Double = 0.0,
     val activeTripStartedAtMillis: Long? = null
 ) {
+    val maximumRegeneration: RegenerationPeak?
+        get() = sessions.mapNotNull(TripSessionRecord::maximumRegeneration)
+            .maxByOrNull(RegenerationPeak::powerW)
+
+    //MARK:汇总每日里程
+    //dailyRecords 按自然日汇总所有已完成行程；可选地把当前活动行程合并到开始日期当天。
     fun dailyRecords(includeActiveTrip: Boolean = true): List<DailyMileage> {
         val grouped = sessions.groupBy { it.date }
         val records = grouped.map { (date, trips) ->
@@ -80,6 +99,8 @@ data class MileageHistoryState(
         return records.values.sortedByDescending { it.date }
     }
 
+    //MARK:生成里程区间
+    //bucketsFor 根据日、周、月或年维度选择对应分桶算法，返回图表使用的连续里程桶。
     fun bucketsFor(period: MileagePeriod, anchor: LocalDate = LocalDate.now()): List<MileageBucket> = when (period) {
         MileagePeriod.Day -> dayBuckets(anchor)
         MileagePeriod.Week -> weekBuckets(anchor)
@@ -87,14 +108,20 @@ data class MileageHistoryState(
         MileagePeriod.Year -> yearBuckets(anchor)
     }
 
+    //MARK:统计周期里程
+    //totalForPeriod 累加指定周期内全部里程桶的米数，得到该时间范围总里程。
     fun totalForPeriod(period: MileagePeriod, anchor: LocalDate = LocalDate.now()): Double =
         bucketsFor(period, anchor).sumOf { it.distanceMeters }
 
+    //MARK:统计今日里程
+    //todayDistanceKm 从每日汇总中查找今天并返回公里数；无记录时返回 0。
     fun todayDistanceKm(includeActiveTrip: Boolean = true): Double {
         val today = LocalDate.now()
         return dailyRecords(includeActiveTrip).firstOrNull { it.date == today }?.distanceKm ?: 0.0
     }
 
+    //MARK:统计周期摘要
+    //periodSummary 按所选日、周、月或年边界筛选记录，汇总里程和实际行程次数。
     fun periodSummary(period: MileagePeriod, anchor: LocalDate = LocalDate.now()): MileagePeriodSummary {
         val records = dailyRecords()
         return when (period) {
@@ -132,6 +159,8 @@ data class MileageHistoryState(
         }
     }
 
+    //MARK:生成月度日历
+    //calendarMonth 生成指定月份的日历信息，包含每天里程以及当月总里程。
     fun calendarMonth(yearMonth: YearMonth, includeActiveTrip: Boolean = true): List<DailyMileage?> {
         val records = dailyRecords(includeActiveTrip).associateBy { it.date }
         val firstDay = yearMonth.atDay(1)
@@ -146,6 +175,8 @@ data class MileageHistoryState(
         return cells
     }
 
+    //MARK:生成每日区间
+    //dayBuckets 以锚点日期为中心生成连续每日里程桶，缺少记录的日期补零。
     private fun dayBuckets(anchor: YearMonth): List<MileageBucket> {
         val records = dailyRecords().associateBy { it.date }
         return (1..anchor.lengthOfMonth()).map { day ->
@@ -160,8 +191,12 @@ data class MileageHistoryState(
         }
     }
 
+    //MARK:生成每日区间
+    //dayBuckets 以锚点日期为中心生成连续每日里程桶，缺少记录的日期补零。
     private fun dayBuckets(anchor: LocalDate): List<MileageBucket> = dayBuckets(YearMonth.from(anchor))
 
+    //MARK:生成每周区间
+    //weekBuckets 按周一至周日归组每日记录，生成连续周里程桶。
     private fun weekBuckets(anchor: LocalDate): List<MileageBucket> {
         val records = dailyRecords().associateBy { it.date }
         val weekStart = anchor.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
@@ -177,6 +212,8 @@ data class MileageHistoryState(
         }
     }
 
+    //MARK:生成每月区间
+    //monthBuckets 按自然月汇总每日记录，生成连续月份里程桶。
     private fun monthBuckets(anchor: LocalDate): List<MileageBucket> {
         val records = dailyRecords().groupBy { YearMonth.from(it.date) }
         val year = anchor.year
@@ -192,6 +229,8 @@ data class MileageHistoryState(
         }
     }
 
+    //MARK:生成每年区间
+    //yearBuckets 按自然年汇总每日记录，生成连续年份里程桶。
     private fun yearBuckets(anchor: LocalDate): List<MileageBucket> {
         val records = dailyRecords().groupBy { it.date.year }
         val minYear = records.keys.minOrNull()?.coerceAtMost(anchor.year) ?: anchor.year

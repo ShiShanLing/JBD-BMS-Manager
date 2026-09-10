@@ -44,6 +44,8 @@ import kotlinx.coroutines.delay
 import java.util.Locale
 
 @Composable
+//MARK:GPS行程页
+//MileageOnlyTripScreen 组织里程行程页面的完整页面结构，组合内容区和操作入口，并把事件交给状态持有层。
 internal fun MileageOnlyTripScreen(
     state: BmsUiState,
     onFinish: () -> Unit,
@@ -242,6 +244,8 @@ internal fun MileageOnlyTripScreen(
 }
 
 @Composable
+//MARK:里程倒计时卡
+//CountdownCard 绘制倒计时卡片卡片，将同一主题的标题、关键数值和辅助信息组合展示。
 private fun CountdownCard(
     distanceKm: Double,
     targetKm: Int,
@@ -336,6 +340,8 @@ private fun CountdownCard(
 }
 
 @Composable
+//MARK:行程数值卡
+//TripValueCard 绘制行程值卡片卡片，将同一主题的标题、关键数值和辅助信息组合展示。
 private fun TripValueCard(
     title: String,
     value: String,
@@ -362,10 +368,16 @@ private fun TripValueCard(
     }
 }
 
+//MARK:格式化速度
+//formatSpeed 将速度转换为适合当前页面展示的文本，并统一精度、单位或正负号格式。
 private fun formatSpeed(value: Double): String = String.format(Locale.US, "%.1f", value.coerceAtLeast(0.0))
 
+//MARK:格式化里程
+//将米转换为公里，并根据数值大小选择一位或两位小数。
 private fun formatDistance(value: Double): String = String.format(Locale.US, "%.1f", value.coerceAtLeast(0.0))
 
+//MARK:格式化时长
+//将秒数转换为小时、分钟和秒组成的骑行时长文本。
 private fun formatDuration(durationMillis: Long): String {
     val totalMinutes = durationMillis / 60_000L
     val hours = totalMinutes / 60L

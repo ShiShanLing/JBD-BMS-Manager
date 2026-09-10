@@ -6,9 +6,13 @@ import org.junit.Test
 import java.time.LocalDate
 import java.time.ZoneId
 
+//MARK:测试历史状态
+//MileageHistoryStateTest 验证 MileageHistoryState 的正常流程、边界输入和需要长期保持的回归行为。
 class MileageHistoryStateTest {
     private val zone = ZoneId.systemDefault()
 
+    //MARK:处理会话
+    //构造指定日期和距离的已完成行程，便于验证日历及周期汇总。
     private fun session(
         date: LocalDate,
         distanceKm: Double,
@@ -25,6 +29,23 @@ class MileageHistoryStateTest {
     }
 
     @Test
+    //MARK:测试历史回收
+    //历史最大回收应从所有已归档行程中按功率选择，供离线页面持续展示最高记录。
+    fun maximumRegenerationUsesHighestArchivedPower() {
+        val today = LocalDate.of(2026, 9, 10)
+        val lower = session(today, 10.0).copy(
+            maximumRegeneration = RegenerationPeak(15.0, 840.0, 35.0, 1_000L)
+        )
+        val higher = session(today.minusDays(1), 12.0).copy(
+            maximumRegeneration = RegenerationPeak(21.0, 1_176.0, 42.0, 2_000L)
+        )
+
+        assertEquals(higher.maximumRegeneration, MileageHistoryState(listOf(lower, higher)).maximumRegeneration)
+    }
+
+    @Test
+    //MARK:测试每日汇总
+    //验证每日记录groupssessionsby启动date场景的关键输出，防止后续修改破坏既有行为。
     fun dailyRecords_groupsSessionsByStartDate() {
         val today = LocalDate.of(2026, 8, 22)
         val history = MileageHistoryState(
@@ -41,6 +62,8 @@ class MileageHistoryStateTest {
     }
 
     @Test
+    //MARK:测试行程
+    //验证每日记录includes活动行程距离场景的关键输出，防止后续修改破坏既有行为。
     fun dailyRecords_includesActiveTripDistance() {
         val today = LocalDate.of(2026, 8, 22)
         val startedAt = today.atTime(9, 0).atZone(zone).toInstant().toEpochMilli()
@@ -54,6 +77,8 @@ class MileageHistoryStateTest {
     }
 
     @Test
+    //MARK:测试当前
+    //验证weekbuckets开始frommondayof电流week场景的关键输出，防止后续修改破坏既有行为。
     fun weekBuckets_startsFromMondayOfCurrentWeek() {
         val anchor = LocalDate.of(2026, 8, 22)
         val history = MileageHistoryState(
@@ -70,6 +95,8 @@ class MileageHistoryStateTest {
     }
 
     @Test
+    //MARK:测试当前
+    //验证monthbuckets返回twelvemonthsfor电流year场景的关键输出，防止后续修改破坏既有行为。
     fun monthBuckets_returnsTwelveMonthsForCurrentYear() {
         val anchor = LocalDate.of(2026, 8, 22)
         val history = MileageHistoryState(
@@ -88,6 +115,8 @@ class MileageHistoryStateTest {
     }
 
     @Test
+    //MARK:测试当前
+    //验证yearbuckets返回allyearsthrough电流year场景的关键输出，防止后续修改破坏既有行为。
     fun yearBuckets_returnsAllYearsThroughCurrentYear() {
         val anchor = LocalDate.of(2026, 8, 22)
         val history = MileageHistoryState(
@@ -105,6 +134,8 @@ class MileageHistoryStateTest {
     }
 
     @Test
+    //MARK:测试摘要
+    //验证periodsummary返回今日monthandyeartotals场景的关键输出，防止后续修改破坏既有行为。
     fun periodSummary_returnsTodayMonthAndYearTotals() {
         val today = LocalDate.of(2026, 8, 22)
         val history = MileageHistoryState(
@@ -123,6 +154,8 @@ class MileageHistoryStateTest {
     }
 
     @Test
+    //MARK:测试日历
+    //验证calendarmonthpadsleadingdays场景的关键输出，防止后续修改破坏既有行为。
     fun calendarMonth_padsLeadingDays() {
         val yearMonth = java.time.YearMonth.of(2026, 8)
         val history = MileageHistoryState(
@@ -134,6 +167,8 @@ class MileageHistoryStateTest {
     }
 
     @Test
+    //MARK:测试今日里程
+    //验证今日距离km返回今日total场景的关键输出，防止后续修改破坏既有行为。
     fun todayDistanceKm_returnsTodayTotal() {
         val today = LocalDate.now()
         val history = MileageHistoryState(
@@ -148,6 +183,8 @@ class MileageHistoryStateTest {
     }
 
     @Test
+    //MARK:测试里程数据
+    //验证GPSonly会话stillcontributes里程without电量数据场景的关键输出，防止后续修改破坏既有行为。
     fun gpsOnlySessionStillContributesMileageWithoutEnergyData() {
         val today = LocalDate.now()
         val startedAt = today.atTime(12, 0).atZone(zone).toInstant().toEpochMilli()

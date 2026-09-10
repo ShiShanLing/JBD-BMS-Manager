@@ -4,6 +4,8 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
+//MARK:测试行程
+//TripServiceRecoveryPolicyTest 验证 TripServiceRecoveryPolicy 的正常流程、边界输入和需要长期保持的回归行为。
 class TripServiceRecoveryPolicyTest {
     @Test
     fun `persisted active trip restarts a missing service`() {

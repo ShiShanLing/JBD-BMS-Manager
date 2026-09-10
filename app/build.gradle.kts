@@ -25,8 +25,8 @@ android {
         applicationId = "com.bms.jbdmanager"
         minSdk = 31
         targetSdk = 36
-        versionCode = 43
-        versionName = "1.1.0"
+        versionCode = 44
+        versionName = "1.1.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

@@ -25,6 +25,8 @@ import com.bms.jbdmanager.update.AppUpdateEntry
 import com.bms.jbdmanager.update.AppUpdateState
 
 @Composable
+//MARK:应用更新弹框
+//AppUpdateDialog 展示应用更新弹框弹框，按当前状态控制按钮可用性，并通过回调提交或取消操作。
 internal fun AppUpdateDialog(
     state: AppUpdateState,
     onDismiss: () -> Unit,
@@ -87,6 +89,8 @@ internal fun AppUpdateDialog(
 }
 
 @Composable
+//MARK:版本信息弹框
+//AppVersionDialog 展示应用版本弹框弹框，按当前状态控制按钮可用性，并通过回调提交或取消操作。
 internal fun AppVersionDialog(
     state: AppUpdateState,
     onDismiss: () -> Unit,
@@ -190,6 +194,8 @@ internal fun AppVersionDialog(
 }
 
 @Composable
+//MARK:更新下载状态
+//UpdateDownloadStatus 绘制更新下载状态组件，并根据参数决定文案、数值、颜色及交互状态。
 private fun UpdateDownloadStatus(state: AppUpdateState, readyMessage: String?) {
     if (state.downloading) {
         LinearProgressIndicator(
@@ -209,6 +215,8 @@ private fun UpdateDownloadStatus(state: AppUpdateState, readyMessage: String?) {
 }
 
 @Composable
+//MARK:更新说明
+//ChangelogSection 按版本分组绘制更新说明列表，区分当前版本之后的多次变更。
 private fun ChangelogSection(entries: List<AppUpdateEntry>) {
     if (entries.isEmpty()) return
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -227,6 +235,8 @@ private fun ChangelogSection(entries: List<AppUpdateEntry>) {
 }
 
 @Composable
+//MARK:版本信息行
+//VersionInfoRow 在一行内排列版本信息数据行的名称、数值和状态，统一对齐方式与间距。
 private fun VersionInfoRow(
     label: String,
     value: String,

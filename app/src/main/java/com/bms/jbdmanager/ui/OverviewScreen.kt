@@ -29,11 +29,17 @@ import com.bms.jbdmanager.model.BmsUiState
 import com.bms.jbdmanager.model.CellSummary
 import com.bms.jbdmanager.model.GpsSpeedState
 import com.bms.jbdmanager.model.MileageHistoryState
+import com.bms.jbdmanager.model.RegenerationPeak
 import com.bms.jbdmanager.model.TripState
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 
 @Composable
+//MARK:电池概览页
+//Overview 绘制概览组件，并根据参数决定文案、数值、颜色及交互状态。
 internal fun Overview(
     state: BmsUiState,
     onRequestLocationPermission: () -> Unit,
@@ -103,6 +109,8 @@ internal fun Overview(
 }
 
 @Composable
+//MARK:本次行程卡
+//TripCard 绘制行程卡片卡片，将同一主题的标题、关键数值和辅助信息组合展示。
 private fun TripCard(
     trip: TripState,
     mileageHistory: MileageHistoryState,
@@ -221,6 +229,11 @@ private fun TripCard(
                     }
                 }
             )
+            Spacer(Modifier.height(7.dp))
+            RegenerationPeakPanel(
+                current = trip.maximumRegeneration,
+                historical = mileageHistory.maximumRegeneration
+            )
             if (!locationPermissionGranted) {
                 Spacer(Modifier.height(7.dp))
                 OutlinedButton(onClick = onRequestLocationPermission, modifier = Modifier.fillMaxWidth()) {
@@ -232,6 +245,65 @@ private fun TripCard(
 }
 
 @Composable
+//MARK:回收峰值卡
+//并列展示本次行程和历史行程的最大动能回收事件，包括同一时刻的电流、功率、车速和时间。
+private fun RegenerationPeakPanel(current: RegenerationPeak?, historical: RegenerationPeak?) {
+    Surface(
+        color = MaterialTheme.colorScheme.secondary.copy(alpha = 0.10f),
+        shape = RoundedCornerShape(10.dp)
+    ) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            RegenerationPeakValue("本次最大回收", current, Modifier.weight(1f))
+            RegenerationPeakValue("历史最大回收", historical, Modifier.weight(1f))
+        }
+    }
+}
+
+@Composable
+//MARK:回收峰值项
+//格式化一条回收峰值；没有可信的骑行回收样本时明确显示“等待记录”，避免用零值造成误解。
+private fun RegenerationPeakValue(label: String, peak: RegenerationPeak?, modifier: Modifier = Modifier) {
+    Column(modifier) {
+        Text(
+            label,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.SemiBold
+        )
+        Text(
+            peak?.let { "${compactNumber(it.currentA, 1)} A · ${compactNumber(it.powerW, 0)} W" } ?: "等待记录",
+            color = if (peak == null) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.secondary,
+            fontSize = 14.sp,
+            lineHeight = 18.sp,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1
+        )
+        if (peak != null) {
+            Text(
+                "${compactNumber(peak.speedKmh, 1)} km/h · ${formatRegenerationTime(peak.recordedAtMillis)}",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 10.sp,
+                lineHeight = 13.sp,
+                maxLines = 1
+            )
+        }
+    }
+}
+
+//MARK:峰值时间
+//把回收峰值毫秒时间转换为本地月日和时分，便于与历史骑行记录对应。
+private fun formatRegenerationTime(timestamp: Long): String = regenerationTimeFormatter.format(
+    Instant.ofEpochMilli(timestamp).atZone(ZoneId.systemDefault())
+)
+
+private val regenerationTimeFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("MM-dd HH:mm")
+
+@Composable
+//MARK:GPS速度卡
+//GpsSpeedPanel 绘制当前、近五秒平均和本次最高 GPS 速度三项指标。
 private fun GpsSpeedPanel(speed: GpsSpeedState) {
     Surface(
         color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.72f),
@@ -256,6 +328,8 @@ private fun GpsSpeedPanel(speed: GpsSpeedState) {
 }
 
 @Composable
+//MARK:速度指标
+//GpsSpeedMetric 按统一宽度绘制单项 GPS 速度标题、数字和 km/h 单位。
 private fun GpsSpeedMetric(label: String, value: Double, modifier: Modifier = Modifier) {
     Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
         Text(label, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp, maxLines = 1)
@@ -271,6 +345,8 @@ private fun GpsSpeedMetric(label: String, value: Double, modifier: Modifier = Mo
 }
 
 @Composable
+//MARK:行程主指标
+//TripPrimaryMetric 绘制行程指标组件，并根据参数决定文案、数值、颜色及交互状态。
 private fun TripPrimaryMetric(
     label: String,
     value: String,
@@ -314,6 +390,8 @@ private fun TripPrimaryMetric(
 }
 
 @Composable
+//MARK:分速续航弹框
+//SpeedRangeEstimateDialog 展示速度续航弹框弹框，按当前状态控制按钮可用性，并通过回调提交或取消操作。
 private fun SpeedRangeEstimateDialog(
     trip: TripState,
     remainingAh: Double?,
@@ -403,6 +481,8 @@ private fun SpeedRangeEstimateDialog(
 }
 
 @Composable
+//MARK:行程详情行
+//TripDetailRow 在一行内排列行程数据行的名称、数值和状态，统一对齐方式与间距。
 private fun TripDetailRow(label: String, value: AnnotatedString) {
     Row(Modifier.fillMaxWidth().padding(vertical = 3.dp), verticalAlignment = Alignment.Top) {
         Text(

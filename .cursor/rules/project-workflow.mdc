@@ -1,0 +1,32 @@
+---
+description: 电动 BMS 项目的固定分支、提交、推送和发布规则
+alwaysApply: true
+---
+
+# 项目长期开发规则
+
+## 禁止自动切换分支
+
+- 每次开始工作先检查当前 Git 分支，并默认继续使用当前分支。
+- 未经用户明确同意，不得创建、切换、重命名或删除分支，不得创建或切换 worktree。
+- 不得自行执行 `git checkout`、`git switch` 等改变分支的命令。
+- 当前分支不是 `main` 且任务涉及发布时，必须先询问用户；确认前禁止提交、推送和发布。
+- 如果 Cursor 或其他工具已经自动切换分支，立即向用户报告当前分支和差异，不能静默继续。
+
+## 发布必须推送
+
+- 用户要求打包发布时，必须依次完成：版本与更新记录、测试和 Lint、隐藏测试入口构建、提交、推送 GitHub、GitHub Release、服务器 `version.json`、线上校验。
+- 本地提交不等于发布。必须主动执行 `git push origin <当前发布分支>` 并确认远程包含本次提交。
+- GitHub Actions 必须等待到最终成功；失败或仍在运行时不得宣称发布完成。
+- 最终本地 APK 必须与 GitHub Release 的固定签名 APK 一致。
+
+## 中文描述
+
+- Git 提交说明、改动摘要、PR 标题与正文、Release 标题、Release Notes 和 `CHANGELOG.md` 必须使用中文。
+- 描述应写清具体功能和影响，不使用只有英文或含义模糊的提交说明。
+
+## 完成校验
+
+- 发布前检查当前分支与 `git status`，不提交临时文件、日志、APK 或无关改动。
+- 发布后核对远程提交、GitHub Release、APK 版本与签名，以及 `https://shishanling.cn/jbd-bms/version.json`。
+- 最终向用户报告当前分支、提交编号、推送结果、线上及本地下载地址。

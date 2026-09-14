@@ -8,6 +8,29 @@ import org.junit.Test
 //TripStateTest 验证 TripState 的正常流程、边界输入和需要长期保持的回归行为。
 class TripStateTest {
     @Test
+    //MARK:测试骑行热量
+    //验证停车不累计热量，且相同速度和时长下体重越大估算热量越高。
+    fun bicycleCaloriesExcludeStopsAndScaleWithWeight() {
+        assertEquals(0.0, bicycleCaloriesForSample(2.0, 70.0, 10.0), 0.0001)
+        val light = bicycleCaloriesForSample(22.0, 60.0, 30.0)
+        val heavy = bicycleCaloriesForSample(22.0, 90.0, 30.0)
+        assertEquals(4.2, light, 0.0001)
+        assertEquals(6.3, heavy, 0.0001)
+    }
+
+    @Test
+    //MARK:测试骑行均速
+    //验证自行车均速只使用有效骑行时间，停车等待不会拉低计算结果。
+    fun bicycleAverageSpeedUsesMovingDuration() {
+        val trip = TripState(
+            trackingMode = TripTrackingMode.Bicycle,
+            distanceMeters = 10_000.0,
+            bicycleMovingDurationSeconds = 1_800.0
+        )
+        assertEquals(20.0, trip.bicycleAverageSpeedKmh, 0.0001)
+    }
+
+    @Test
     //MARK:测试回收峰值
     //车辆正在行驶且 GPS 数据新鲜时，正电流应记录为包含电流、功率、速度和时间的回收峰值。
     fun movingPositiveCurrentCreatesRegenerationPeak() {

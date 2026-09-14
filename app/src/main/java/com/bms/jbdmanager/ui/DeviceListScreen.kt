@@ -158,6 +158,7 @@ internal fun ScanPanel(
     disconnect: () -> Unit,
     refreshNearby: () -> Unit,
     startMileageOnlyTrip: () -> Unit,
+    startBicycleTrip: () -> Unit,
     showDashboard: () -> Unit,
     showPreview: () -> Unit
 ) {
@@ -188,11 +189,16 @@ internal fun ScanPanel(
                 }
             }
             Spacer(Modifier.height(10.dp))
-            OutlinedButton(
-                onClick = startMileageOnlyTrip,
-                modifier = Modifier.fillMaxWidth()
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Text("仅 GPS 记录行程")
+                OutlinedButton(onClick = startMileageOnlyTrip, modifier = Modifier.weight(1f)) {
+                    Text("仅 GPS 行程", maxLines = 1)
+                }
+                OutlinedButton(onClick = startBicycleTrip, modifier = Modifier.weight(1f)) {
+                    Text("自行车骑行", maxLines = 1)
+                }
             }
         }
 

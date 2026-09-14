@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import com.bms.jbdmanager.model.TripSessionRecord
 import com.bms.jbdmanager.model.RegenerationPeak
+import com.bms.jbdmanager.model.TripCategory
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -35,7 +36,11 @@ internal class MileageHistoryStore(context: Context) {
                                     speedKmh = peak.optDouble(KEY_REGEN_SPEED_KMH, 0.0),
                                     recordedAtMillis = peak.optLong(KEY_REGEN_RECORDED_AT, 0L)
                                 )
-                            }
+                            },
+                            category = item.optString(KEY_CATEGORY, TripCategory.Electric.name)
+                                .let { runCatching { TripCategory.valueOf(it) }.getOrDefault(TripCategory.Electric) },
+                            movingDurationSeconds = item.optDouble(KEY_MOVING_DURATION, 0.0),
+                            estimatedCaloriesKcal = item.optDouble(KEY_CALORIES, 0.0)
                         )
                     )
                 }
@@ -51,7 +56,10 @@ internal class MileageHistoryStore(context: Context) {
         distanceMeters: Double,
         consumedAh: Double,
         consumedWh: Double,
-        maximumRegeneration: RegenerationPeak? = null
+        maximumRegeneration: RegenerationPeak? = null,
+        category: TripCategory = TripCategory.Electric,
+        movingDurationSeconds: Double = 0.0,
+        estimatedCaloriesKcal: Double = 0.0
     ): List<TripSessionRecord> {
         if (distanceMeters < 10.0) return loadSessions()
         val sessions = loadSessions().toMutableList()
@@ -61,7 +69,10 @@ internal class MileageHistoryStore(context: Context) {
             distanceMeters = distanceMeters,
             consumedAh = consumedAh,
             consumedWh = consumedWh,
-            maximumRegeneration = maximumRegeneration
+            maximumRegeneration = maximumRegeneration,
+            category = category,
+            movingDurationSeconds = movingDurationSeconds,
+            estimatedCaloriesKcal = estimatedCaloriesKcal
         )
         val trimmed = sessions
             .sortedByDescending { it.startedAtMillis }
@@ -88,6 +99,9 @@ internal class MileageHistoryStore(context: Context) {
                     .put(KEY_DISTANCE, session.distanceMeters)
                     .put(KEY_CONSUMED_AH, session.consumedAh)
                     .put(KEY_CONSUMED_WH, session.consumedWh)
+                    .put(KEY_CATEGORY, session.category.name)
+                    .put(KEY_MOVING_DURATION, session.movingDurationSeconds)
+                    .put(KEY_CALORIES, session.estimatedCaloriesKcal)
                     .apply {
                         session.maximumRegeneration?.let { peak ->
                             put(KEY_MAXIMUM_REGENERATION, JSONObject()
@@ -112,6 +126,9 @@ internal class MileageHistoryStore(context: Context) {
         const val KEY_DISTANCE = "distance_meters"
         const val KEY_CONSUMED_AH = "consumed_ah"
         const val KEY_CONSUMED_WH = "consumed_wh"
+        const val KEY_CATEGORY = "category"
+        const val KEY_MOVING_DURATION = "moving_duration_seconds"
+        const val KEY_CALORIES = "estimated_calories_kcal"
         const val KEY_MAXIMUM_REGENERATION = "maximum_regeneration"
         const val KEY_REGEN_CURRENT_A = "current_a"
         const val KEY_REGEN_POWER_W = "power_w"

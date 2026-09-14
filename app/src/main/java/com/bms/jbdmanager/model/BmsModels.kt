@@ -237,7 +237,8 @@ fun defaultSpeedRangeStats(): List<SpeedRangeStats> =
 //TripTrackingMode 枚举行程跟踪的全部合法取值；新增状态时需要同步检查解析、存储和界面分支。
 enum class TripTrackingMode {
     Bms,
-    MileageOnly
+    MileageOnly,
+    Bicycle
 }
 
 //MARK:回收峰值
@@ -318,10 +319,18 @@ data class TripState(
     val mileageCountdownReachedAtMillis: Long? = null,
     val mileageCountdownAcknowledged: Boolean = false,
     val maximumRegeneration: RegenerationPeak? = null,
+    val bicycleBodyWeightKg: Double = 70.0,
+    val bicycleMovingDurationSeconds: Double = 0.0,
+    val bicycleCaloriesKcal: Double = 0.0,
     val rangeTest: RangeTestState = RangeTestState(),
     val speedRangeStats: List<SpeedRangeStats> = defaultSpeedRangeStats()
 ) {
     val isMileageOnly: Boolean get() = trackingMode == TripTrackingMode.MileageOnly
+    val isBicycle: Boolean get() = trackingMode == TripTrackingMode.Bicycle
+    val bicycleAverageSpeedKmh: Double
+        get() = if (bicycleMovingDurationSeconds > 0.0) {
+            distanceKm / (bicycleMovingDurationSeconds / 3_600.0)
+        } else 0.0
     val distanceKm: Double get() = distanceMeters / 1_000.0
     val mileageCountdownRemainingKm: Double
         get() = (mileageCountdownTargetKm - distanceKm).coerceAtLeast(0.0)
@@ -388,6 +397,29 @@ data class TripState(
             ahPer100Km = totalConsumed / totalDistance * 100.0
         )
     }
+}
+
+//MARK:骑行强度
+//根据自行车实时速度返回估算代谢当量；低于 5km/h 视为停车或无效移动，不累计热量。
+internal fun bicycleMetForSpeed(speedKmh: Double): Double = when {
+    speedKmh < 5.0 -> 0.0
+    speedKmh < 16.0 -> 4.0
+    speedKmh < 20.0 -> 6.8
+    speedKmh < 25.0 -> 8.0
+    speedKmh < 30.0 -> 10.0
+    else -> 12.0
+}
+
+//MARK:骑行热量
+//按当前速度对应的 MET、体重和有效采样时长估算热量；结果仅用于趋势参考，不作为医疗数据。
+internal fun bicycleCaloriesForSample(
+    speedKmh: Double,
+    bodyWeightKg: Double,
+    elapsedSeconds: Double
+): Double {
+    if (elapsedSeconds !in 0.0..30.0 || bodyWeightKg !in 30.0..250.0) return 0.0
+    val met = bicycleMetForSpeed(speedKmh)
+    return met * 3.5 * bodyWeightKg / 200.0 * (elapsedSeconds / 60.0)
 }
 
 //MARK:速度状态

@@ -51,6 +51,7 @@ import com.bms.jbdmanager.model.MileageBucket
 import com.bms.jbdmanager.model.MileageHistoryState
 import com.bms.jbdmanager.model.MileagePeriod
 import com.bms.jbdmanager.model.TripSessionRecord
+import com.bms.jbdmanager.model.TripCategory
 import com.bms.jbdmanager.ui.theme.JbdBmsTheme
 import java.time.DayOfWeek
 import java.time.LocalDate
@@ -61,6 +62,7 @@ import java.time.temporal.TemporalAdjusters
 //MARK:里程历史页
 //MileageHistoryPage 组织里程历史页面的完整页面结构，组合内容区和操作入口，并把事件交给状态持有层。
 internal fun MileageHistoryPage(history: MileageHistoryState) {
+    var category by rememberSaveable { mutableStateOf(TripCategory.Electric) }
     var period by remember { mutableStateOf(MileagePeriod.Day) }
     var calendarMonth by remember { mutableIntStateOf(YearMonth.now().monthValue) }
     var calendarYear by remember { mutableIntStateOf(YearMonth.now().year) }
@@ -68,11 +70,12 @@ internal fun MileageHistoryPage(history: MileageHistoryState) {
     val selectedDate = remember(selectedDateEpoch) { LocalDate.ofEpochDay(selectedDateEpoch) }
     val yearMonth = remember(calendarYear, calendarMonth) { YearMonth.of(calendarYear, calendarMonth) }
     val today = remember { LocalDate.now() }
-    val periodSummary = remember(history, period, today) { history.periodSummary(period, today) }
-    val buckets = remember(history, period, yearMonth, today) {
+    val filteredHistory = remember(history, category) { history.forCategory(category) }
+    val periodSummary = remember(filteredHistory, period, today) { filteredHistory.periodSummary(period, today) }
+    val buckets = remember(filteredHistory, period, yearMonth, today) {
         when (period) {
-            MileagePeriod.Day -> history.bucketsFor(MileagePeriod.Day, yearMonth.atDay(1))
-            else -> history.bucketsFor(period, today)
+            MileagePeriod.Day -> filteredHistory.bucketsFor(MileagePeriod.Day, yearMonth.atDay(1))
+            else -> filteredHistory.bucketsFor(period, today)
         }
     }
     val periodLabel = remember(period, today) {
@@ -105,11 +108,15 @@ internal fun MileageHistoryPage(history: MileageHistoryState) {
         contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp, vertical = 4.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
+        item { MileageCategorySelector(selected = category, onSelect = { category = it }) }
         item {
             MileageSummaryCard(
                 totalKm = periodSummary.distanceKm,
                 periodLabel = periodLabel,
-                tripCount = periodSummary.tripCount
+                tripCount = periodSummary.tripCount,
+                category = category,
+                movingDurationSeconds = periodSummary.movingDurationSeconds,
+                caloriesKcal = periodSummary.estimatedCaloriesKcal
             )
         }
         item {
@@ -125,7 +132,7 @@ internal fun MileageHistoryPage(history: MileageHistoryState) {
         item {
             MileageCalendarCard(
                 yearMonth = yearMonth,
-                history = history,
+                history = filteredHistory,
                 selectedDate = selectedDate,
                 onPreviousMonth = {
                     val prev = yearMonth.minusMonths(1)
@@ -145,9 +152,35 @@ internal fun MileageHistoryPage(history: MileageHistoryState) {
 }
 
 @Composable
+//MARK:车辆类型
+//在同一历史入口切换电动车与自行车数据，避免增加底部导航数量并保持日历、图表完全独立。
+private fun MileageCategorySelector(selected: TripCategory, onSelect: (TripCategory) -> Unit) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        listOf(TripCategory.Electric to "电动车", TripCategory.Bicycle to "自行车").forEach { (category, label) ->
+            val active = selected == category
+            Surface(
+                modifier = Modifier.weight(1f).clickable { onSelect(category) },
+                color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                contentColor = if (active) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                shape = RoundedCornerShape(10.dp)
+            ) {
+                Text(label, modifier = Modifier.padding(vertical = 9.dp), textAlign = TextAlign.Center, fontWeight = FontWeight.Bold)
+            }
+        }
+    }
+}
+
+@Composable
 //MARK:里程摘要卡
 //MileageSummaryCard 绘制里程摘要卡片卡片，将同一主题的标题、关键数值和辅助信息组合展示。
-private fun MileageSummaryCard(totalKm: Double, periodLabel: String, tripCount: Int) {
+private fun MileageSummaryCard(
+    totalKm: Double,
+    periodLabel: String,
+    tripCount: Int,
+    category: TripCategory,
+    movingDurationSeconds: Double,
+    caloriesKcal: Double
+) {
     Card(
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.46f)
@@ -169,8 +202,23 @@ private fun MileageSummaryCard(totalKm: Double, periodLabel: String, tripCount: 
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 11.sp
             )
+            if (category == TripCategory.Bicycle) {
+                Text(
+                    "有效骑行 ${formatHistoryDuration(movingDurationSeconds)} · 估算 ${caloriesKcal.toInt()} kcal",
+                    color = MaterialTheme.colorScheme.secondary,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
         }
     }
+}
+
+//MARK:历史时长
+//把自行车历史累计秒数转换为小时分钟，供日、周、月、年摘要统一展示。
+private fun formatHistoryDuration(seconds: Double): String {
+    val minutes = (seconds / 60.0).toInt().coerceAtLeast(0)
+    return if (minutes >= 60) "${minutes / 60}小时${minutes % 60}分" else "${minutes}分钟"
 }
 
 @Composable

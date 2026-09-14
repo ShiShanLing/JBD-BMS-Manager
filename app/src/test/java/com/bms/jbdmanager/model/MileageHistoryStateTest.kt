@@ -9,6 +9,31 @@ import java.time.ZoneId
 //MARK:测试历史状态
 //MileageHistoryStateTest 验证 MileageHistoryState 的正常流程、边界输入和需要长期保持的回归行为。
 class MileageHistoryStateTest {
+    @Test
+    //MARK:测试车辆隔离
+    //验证电动车与自行车历史筛选后分别统计，且自行车热量不会混入电动车摘要。
+    fun categoriesKeepElectricAndBicycleHistorySeparate() {
+        val today = LocalDate.now()
+        val startedAt = today.atTime(8, 0).atZone(zone).toInstant().toEpochMilli()
+        val electric = TripSessionRecord(startedAt, startedAt + 1_000, 5_000.0, 2.0, 100.0)
+        val bicycle = TripSessionRecord(
+            startedAt + 2_000,
+            startedAt + 3_000,
+            12_000.0,
+            0.0,
+            0.0,
+            category = TripCategory.Bicycle,
+            movingDurationSeconds = 2_400.0,
+            estimatedCaloriesKcal = 320.0
+        )
+        val history = MileageHistoryState(sessions = listOf(electric, bicycle))
+
+        assertEquals(5.0, history.forCategory(TripCategory.Electric).todayDistanceKm(false), 0.0001)
+        val bicycleSummary = history.forCategory(TripCategory.Bicycle).periodSummary(MileagePeriod.Day, today)
+        assertEquals(12.0, bicycleSummary.distanceKm, 0.0001)
+        assertEquals(320.0, bicycleSummary.estimatedCaloriesKcal, 0.0001)
+    }
+
     private val zone = ZoneId.systemDefault()
 
     //MARK:处理会话

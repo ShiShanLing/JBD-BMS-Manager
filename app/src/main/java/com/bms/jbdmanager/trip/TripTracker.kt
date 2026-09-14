@@ -5,6 +5,8 @@ import com.bms.jbdmanager.model.BmsBasicInfo
 import com.bms.jbdmanager.model.RangeTestState
 import com.bms.jbdmanager.model.TripState
 import com.bms.jbdmanager.model.TripTrackingMode
+import com.bms.jbdmanager.model.TripCategory
+import com.bms.jbdmanager.model.bicycleCaloriesForSample
 import com.bms.jbdmanager.model.defaultSpeedRangeStats
 import com.bms.jbdmanager.model.resolveMileageCountdownReachedAt
 import com.bms.jbdmanager.model.updatedRegenerationPeak
@@ -50,6 +52,7 @@ object TripTracker {
         if (!_state.value.isTracking) {
             // 分速度区间的长期样本跨行程保留；本次距离、SOC 和容量则必须从新连接重新建立基准。
             val retainedSpeedRangeStats = _state.value.speedRangeStats
+            val retainedWeight = _state.value.bicycleBodyWeightKg
             _state.value = TripState(
                 isTracking = true,
                 trackingMode = TripTrackingMode.Bms,
@@ -60,6 +63,7 @@ object TripTracker {
                 currentRemainingAh = info.remainingCapacityAh,
                 currentA = info.currentA,
                 gpsMessage = "正在等待 GPS 定位",
+                bicycleBodyWeightKg = retainedWeight,
                 speedRangeStats = retainedSpeedRangeStats
             )
         }
@@ -80,12 +84,14 @@ object TripTracker {
         if (_state.value.isTracking && _state.value.isMileageOnly) return
         // 租用电池模式只累计 GPS 里程，不把未知电池的电流和容量混入自己的续航样本。
         val retainedSpeedRangeStats = _state.value.speedRangeStats
+        val retainedWeight = _state.value.bicycleBodyWeightKg
         _state.value = TripState(
             isTracking = true,
             trackingMode = TripTrackingMode.MileageOnly,
             startedAtMillis = nowMillis,
             gpsMessage = "正在等待 GPS 定位",
             mileageCountdownTargetKm = countdownTargetKm.coerceIn(5, 200),
+            bicycleBodyWeightKg = retainedWeight,
             speedRangeStats = retainedSpeedRangeStats
         )
         lastBmsAtMillis = null
@@ -96,11 +102,43 @@ object TripTracker {
     }
 
     @Synchronized
+    //MARK:自行车行程
+    //建立独立的自行车 GPS 行程，保留用户体重设置，但不继承电动车的续航与耗电样本。
+    fun beginBicycle(nowMillis: Long = System.currentTimeMillis()) {
+        ensureInitialized()
+        if (_state.value.isTracking && _state.value.isBicycle) return
+        val retainedWeight = _state.value.bicycleBodyWeightKg.coerceIn(30.0, 250.0)
+        val retainedSpeedRangeStats = _state.value.speedRangeStats
+        _state.value = TripState(
+            isTracking = true,
+            trackingMode = TripTrackingMode.Bicycle,
+            startedAtMillis = nowMillis,
+            gpsMessage = "正在等待 GPS 定位",
+            bicycleBodyWeightKg = retainedWeight,
+            speedRangeStats = retainedSpeedRangeStats
+        )
+        lastBmsAtMillis = null
+        lastCurrentA = null
+        lastVoltageV = null
+        lastLocationPersistAtMillis = 0L
+        persist()
+    }
+
+    @Synchronized
+    //MARK:设置体重
+    //更新自行车热量估算使用的体重，并限制在合理范围内供后续每个采样点计算。
+    fun setBicycleBodyWeight(weightKg: Double) {
+        ensureInitialized()
+        _state.value = _state.value.copy(bicycleBodyWeightKg = weightKg.coerceIn(30.0, 250.0))
+        persist()
+    }
+
+    @Synchronized
     //MARK:更新电池
     //updateBms 使用过滤后的定位或 BMS 样本更新更新，拒绝异常时间间隔和不可信数据。
     fun updateBms(info: BmsBasicInfo, nowMillis: Long = System.currentTimeMillis()) {
         ensureInitialized()
-        if (!_state.value.isTracking || _state.value.isMileageOnly) return
+        if (!_state.value.isTracking || _state.value.trackingMode != TripTrackingMode.Bms) return
 
         var consumedAh = _state.value.integratedConsumedAh
         var consumedWh = _state.value.integratedConsumedWh
@@ -184,7 +222,7 @@ object TripTracker {
         if (!_state.value.isTracking) return
         val speedKmh = (speedMetersPerSecond * 3.6).coerceAtLeast(0.0)
         val currentTest = _state.value.rangeTest
-        val bmsTracking = !_state.value.isMileageOnly
+        val bmsTracking = _state.value.trackingMode == TripTrackingMode.Bms
         val testAcceptsSample = bmsTracking && currentTest.isActive &&
             speedKmh >= currentTest.minimumSpeedKmh && speedKmh <= currentTest.maximumSpeedKmh &&
             addedDistanceMeters > 0.0 && elapsedSeconds in 0.0..30.0
@@ -214,6 +252,13 @@ object TripTracker {
             targetKm = _state.value.mileageCountdownTargetKm,
             timestampMillis = timestampMillis
         )
+        val bicycleSampleAccepted = _state.value.isBicycle && addedDistanceMeters > 0.0 &&
+            elapsedSeconds in 0.0..30.0 && speedKmh >= 5.0
+        val bicycleDuration = _state.value.bicycleMovingDurationSeconds +
+            if (bicycleSampleAccepted) elapsedSeconds else 0.0
+        val bicycleCalories = _state.value.bicycleCaloriesKcal + if (bicycleSampleAccepted) {
+            bicycleCaloriesForSample(speedKmh, _state.value.bicycleBodyWeightKg, elapsedSeconds)
+        } else 0.0
         _state.value = _state.value.copy(
             distanceMeters = updatedDistanceMeters,
             currentSpeedKmh = speedKmh,
@@ -225,6 +270,8 @@ object TripTracker {
             mileageCountdownAcknowledged = if (
                 countdownReachedAt != null && _state.value.mileageCountdownReachedAtMillis == null
             ) false else _state.value.mileageCountdownAcknowledged,
+            bicycleMovingDurationSeconds = bicycleDuration,
+            bicycleCaloriesKcal = bicycleCalories,
             rangeTest = updatedTest,
             speedRangeStats = speedRangeStats
         )
@@ -410,7 +457,10 @@ object TripTracker {
             distanceMeters = trip.distanceMeters,
             consumedAh = trip.consumedAh,
             consumedWh = trip.integratedConsumedWh,
-            maximumRegeneration = trip.maximumRegeneration
+            maximumRegeneration = trip.maximumRegeneration,
+            category = if (trip.isBicycle) TripCategory.Bicycle else TripCategory.Electric,
+            movingDurationSeconds = trip.bicycleMovingDurationSeconds,
+            estimatedCaloriesKcal = trip.bicycleCaloriesKcal
         )
     }
 

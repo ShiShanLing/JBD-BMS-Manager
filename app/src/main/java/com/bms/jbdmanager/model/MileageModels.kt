@@ -17,12 +17,19 @@ data class TripSessionRecord(
     val distanceMeters: Double,
     val consumedAh: Double,
     val consumedWh: Double,
-    val maximumRegeneration: RegenerationPeak? = null
+    val maximumRegeneration: RegenerationPeak? = null,
+    val category: TripCategory = TripCategory.Electric,
+    val movingDurationSeconds: Double = 0.0,
+    val estimatedCaloriesKcal: Double = 0.0
 ) {
     val distanceKm: Double get() = distanceMeters / 1_000.0
     val date: LocalDate
         get() = Instant.ofEpochMilli(startedAtMillis).atZone(ZoneId.systemDefault()).toLocalDate()
 }
+
+//MARK:行程类型
+//区分电动车与自行车历史；旧版没有类型字段的记录统一按电动车读取。
+enum class TripCategory { Electric, Bicycle }
 
 //MARK:每日里程
 //DailyMileage 将里程相关字段组合为不可变值，避免跨层传递时出现部分字段不同步。
@@ -31,7 +38,9 @@ data class DailyMileage(
     val distanceMeters: Double,
     val consumedAh: Double = 0.0,
     val consumedWh: Double = 0.0,
-    val tripCount: Int = 0
+    val tripCount: Int = 0,
+    val movingDurationSeconds: Double = 0.0,
+    val estimatedCaloriesKcal: Double = 0.0
 ) {
     val distanceKm: Double get() = distanceMeters / 1_000.0
 }
@@ -44,7 +53,9 @@ enum class MileagePeriod { Day, Week, Month, Year }
 //MileagePeriodSummary 汇总一次里程摘要的计算或读取结果，调用方无需再从原始字段重复推导。
 data class MileagePeriodSummary(
     val distanceKm: Double,
-    val tripCount: Int
+    val tripCount: Int,
+    val movingDurationSeconds: Double = 0.0,
+    val estimatedCaloriesKcal: Double = 0.0
 )
 
 //MARK:里程统计区间
@@ -63,11 +74,25 @@ data class MileageBucket(
 data class MileageHistoryState(
     val sessions: List<TripSessionRecord> = emptyList(),
     val activeTripDistanceMeters: Double = 0.0,
-    val activeTripStartedAtMillis: Long? = null
+    val activeTripStartedAtMillis: Long? = null,
+    val activeTripCategory: TripCategory = TripCategory.Electric,
+    val activeTripMovingDurationSeconds: Double = 0.0,
+    val activeTripCaloriesKcal: Double = 0.0
 ) {
     val maximumRegeneration: RegenerationPeak?
-        get() = sessions.mapNotNull(TripSessionRecord::maximumRegeneration)
+        get() = sessions.filter { it.category == TripCategory.Electric }
+            .mapNotNull(TripSessionRecord::maximumRegeneration)
             .maxByOrNull(RegenerationPeak::powerW)
+
+    //MARK:筛选类型
+    //只保留指定车辆类型的历史及同类型活动行程，供图表和日历完全隔离展示。
+    fun forCategory(category: TripCategory): MileageHistoryState = copy(
+        sessions = sessions.filter { it.category == category },
+        activeTripDistanceMeters = if (activeTripCategory == category) activeTripDistanceMeters else 0.0,
+        activeTripStartedAtMillis = if (activeTripCategory == category) activeTripStartedAtMillis else null,
+        activeTripMovingDurationSeconds = if (activeTripCategory == category) activeTripMovingDurationSeconds else 0.0,
+        activeTripCaloriesKcal = if (activeTripCategory == category) activeTripCaloriesKcal else 0.0
+    )
 
     //MARK:汇总每日里程
     //dailyRecords 按自然日汇总所有已完成行程；可选地把当前活动行程合并到开始日期当天。
@@ -79,7 +104,9 @@ data class MileageHistoryState(
                 distanceMeters = trips.sumOf { it.distanceMeters },
                 consumedAh = trips.sumOf { it.consumedAh },
                 consumedWh = trips.sumOf { it.consumedWh },
-                tripCount = trips.size
+                tripCount = trips.size,
+                movingDurationSeconds = trips.sumOf { it.movingDurationSeconds },
+                estimatedCaloriesKcal = trips.sumOf { it.estimatedCaloriesKcal }
             )
         }.associateBy { it.date }.toMutableMap()
 
@@ -93,7 +120,9 @@ data class MileageHistoryState(
                 distanceMeters = (existing?.distanceMeters ?: 0.0) + activeTripDistanceMeters,
                 consumedAh = existing?.consumedAh ?: 0.0,
                 consumedWh = existing?.consumedWh ?: 0.0,
-                tripCount = (existing?.tripCount ?: 0) + if (existing != null) 0 else 1
+                tripCount = (existing?.tripCount ?: 0) + if (existing != null) 0 else 1,
+                movingDurationSeconds = (existing?.movingDurationSeconds ?: 0.0) + activeTripMovingDurationSeconds,
+                estimatedCaloriesKcal = (existing?.estimatedCaloriesKcal ?: 0.0) + activeTripCaloriesKcal
             )
         }
         return records.values.sortedByDescending { it.date }
@@ -129,7 +158,9 @@ data class MileageHistoryState(
                 val record = records.firstOrNull { it.date == anchor }
                 MileagePeriodSummary(
                     distanceKm = record?.distanceKm ?: 0.0,
-                    tripCount = record?.tripCount ?: 0
+                    tripCount = record?.tripCount ?: 0,
+                    movingDurationSeconds = record?.movingDurationSeconds ?: 0.0,
+                    estimatedCaloriesKcal = record?.estimatedCaloriesKcal ?: 0.0
                 )
             }
             MileagePeriod.Week -> {
@@ -138,7 +169,9 @@ data class MileageHistoryState(
                 val inWeek = records.filter { !it.date.isBefore(start) && !it.date.isAfter(end) }
                 MileagePeriodSummary(
                     distanceKm = inWeek.sumOf { it.distanceKm },
-                    tripCount = inWeek.sumOf { it.tripCount }
+                    tripCount = inWeek.sumOf { it.tripCount },
+                    movingDurationSeconds = inWeek.sumOf { it.movingDurationSeconds },
+                    estimatedCaloriesKcal = inWeek.sumOf { it.estimatedCaloriesKcal }
                 )
             }
             MileagePeriod.Month -> {
@@ -146,14 +179,18 @@ data class MileageHistoryState(
                 val inMonth = records.filter { YearMonth.from(it.date) == yearMonth }
                 MileagePeriodSummary(
                     distanceKm = inMonth.sumOf { it.distanceKm },
-                    tripCount = inMonth.sumOf { it.tripCount }
+                    tripCount = inMonth.sumOf { it.tripCount },
+                    movingDurationSeconds = inMonth.sumOf { it.movingDurationSeconds },
+                    estimatedCaloriesKcal = inMonth.sumOf { it.estimatedCaloriesKcal }
                 )
             }
             MileagePeriod.Year -> {
                 val inYear = records.filter { it.date.year == anchor.year }
                 MileagePeriodSummary(
                     distanceKm = inYear.sumOf { it.distanceKm },
-                    tripCount = inYear.sumOf { it.tripCount }
+                    tripCount = inYear.sumOf { it.tripCount },
+                    movingDurationSeconds = inYear.sumOf { it.movingDurationSeconds },
+                    estimatedCaloriesKcal = inYear.sumOf { it.estimatedCaloriesKcal }
                 )
             }
         }

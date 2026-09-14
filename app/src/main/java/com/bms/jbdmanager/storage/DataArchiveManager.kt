@@ -200,11 +200,13 @@ internal class DataArchiveManager(
             )
             zip.writeCsvEntry(
                 "骑行记录.csv",
-                "开始时间,开始时间戳,结束时间戳,里程km,消耗Ah,消耗Wh,最大回收电流A,最大回收功率W,峰值车速kmh,峰值时间戳",
+                "开始时间,开始时间戳,结束时间戳,类型,里程km,消耗Ah,消耗Wh,有效骑行秒数,估算热量kcal,最大回收电流A,最大回收功率W,峰值车速kmh,峰值时间戳",
                 snapshot.mileageSessions.sortedBy { it.startedAtMillis }.map { session ->
                     listOf(
                         csvTime(session.startedAtMillis), session.startedAtMillis, session.finishedAtMillis,
+                        if (session.category == com.bms.jbdmanager.model.TripCategory.Bicycle) "自行车" else "电动车",
                         session.distanceMeters / 1_000.0, session.consumedAh, session.consumedWh,
+                        session.movingDurationSeconds, session.estimatedCaloriesKcal,
                         session.maximumRegeneration?.currentA, session.maximumRegeneration?.powerW,
                         session.maximumRegeneration?.speedKmh, session.maximumRegeneration?.recordedAtMillis
                     )

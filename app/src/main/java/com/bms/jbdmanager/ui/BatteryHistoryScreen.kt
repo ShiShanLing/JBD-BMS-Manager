@@ -32,6 +32,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.bms.jbdmanager.model.BmsUiState
+import com.bms.jbdmanager.model.TripCategory
 import com.bms.jbdmanager.model.BatteryTrendRange
 import com.bms.jbdmanager.model.FullChargeDeltaDirection
 import com.bms.jbdmanager.model.HealthDiagnosisLevel
@@ -120,13 +121,19 @@ internal fun BatteryHistoryPage(
 //RecordHistoryMenu 展示记录历史的可选入口，突出当前项并通过回调上报切换结果。
 private fun RecordHistoryMenu(state: BmsUiState, open: (HistoryDestination) -> Unit) {
     val trips = state.mileageHistory.sessions
-    val totalKm = trips.sumOf { it.distanceMeters } / 1_000.0
+    val electricTrips = trips.filter { it.category == TripCategory.Electric }
+    val bicycleTrips = trips.filter { it.category == TripCategory.Bicycle }
     val activeAlerts = state.protectionEvents.count { it.isActive }
     HistoryMenu(
         heading = "使用与异常记录",
         description = "查看骑行里程，以及BMS实际触发和解除的保护事件。",
         entries = listOf(
-            HistoryMenuEntry("行程记录", "${trips.size}次行程 · 累计 ${historyNumber(totalKm)} km", MaterialTheme.colorScheme.primary, HistoryDestination.Mileage),
+            HistoryMenuEntry(
+                "行程记录",
+                "电动车 ${electricTrips.size}次 · 自行车 ${bicycleTrips.size}次",
+                MaterialTheme.colorScheme.primary,
+                HistoryDestination.Mileage
+            ),
             HistoryMenuEntry(
                 "告警记录",
                 if (activeAlerts > 0) "$activeAlerts 项触发中 · 共 ${state.protectionEvents.size} 条记录" else "当前正常 · 共 ${state.protectionEvents.size} 条记录",

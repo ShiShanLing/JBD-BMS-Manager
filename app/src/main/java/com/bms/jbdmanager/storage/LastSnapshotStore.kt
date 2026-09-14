@@ -13,6 +13,7 @@ import com.bms.jbdmanager.model.RegenerationPeak
 import com.bms.jbdmanager.model.SpeedRangeStats
 import com.bms.jbdmanager.model.TripSessionRecord
 import com.bms.jbdmanager.model.TripState
+import com.bms.jbdmanager.model.TripCategory
 import com.bms.jbdmanager.model.defaultSpeedRangeStats
 import com.bms.jbdmanager.trip.TripStateStore
 import org.json.JSONArray
@@ -146,7 +147,9 @@ internal class LastSnapshotStore(context: Context) {
         // 当前行程达到有效距离时优先展示；过短或刚启动的行程则回退到最近完成记录，避免总显示 0 km。
         if (currentTrip.distanceMeters >= MINIMUM_MEANINGFUL_TRIP_METERS) return currentTrip
 
-        val latestCompleted = mileageHistory.sessions.maxByOrNull { it.finishedAtMillis }
+        val latestCompleted = mileageHistory.sessions
+            .filter { it.category == TripCategory.Electric }
+            .maxByOrNull { it.finishedAtMillis }
             ?: return currentTrip
         return currentTrip.copy(
             startedAtMillis = latestCompleted.startedAtMillis,
@@ -341,6 +344,9 @@ internal class LastSnapshotStore(context: Context) {
     private fun MileageHistoryState.toJson(): String = JSONObject().apply {
         put("activeDistanceMeters", activeTripDistanceMeters)
         activeTripStartedAtMillis?.let { put("activeStartedAtMillis", it) }
+        put("activeTripCategory", activeTripCategory.name)
+        put("activeMovingDurationSeconds", activeTripMovingDurationSeconds)
+        put("activeCaloriesKcal", activeTripCaloriesKcal)
         put("sessions", JSONArray().apply {
             sessions.forEach { session ->
                 put(JSONObject().apply {
@@ -349,6 +355,9 @@ internal class LastSnapshotStore(context: Context) {
                     put("distanceMeters", session.distanceMeters)
                     put("consumedAh", session.consumedAh)
                     put("consumedWh", session.consumedWh)
+                    put("category", session.category.name)
+                    put("movingDurationSeconds", session.movingDurationSeconds)
+                    put("estimatedCaloriesKcal", session.estimatedCaloriesKcal)
                     session.maximumRegeneration?.let { peak ->
                         put("maximumRegeneration", JSONObject()
                             .put("currentA", peak.currentA)
@@ -385,7 +394,11 @@ internal class LastSnapshotStore(context: Context) {
                                     speedKmh = peak.optDouble("speedKmh", 0.0),
                                     recordedAtMillis = peak.optLong("recordedAtMillis", 0L)
                                 )
-                            }
+                            },
+                            category = item.optString("category", TripCategory.Electric.name)
+                                .let { runCatching { TripCategory.valueOf(it) }.getOrDefault(TripCategory.Electric) },
+                            movingDurationSeconds = item.optDouble("movingDurationSeconds", 0.0),
+                            estimatedCaloriesKcal = item.optDouble("estimatedCaloriesKcal", 0.0)
                         )
                     )
                 }
@@ -394,7 +407,11 @@ internal class LastSnapshotStore(context: Context) {
                 sessions = sessions,
                 activeTripDistanceMeters = root.optDouble("activeDistanceMeters", 0.0),
                 activeTripStartedAtMillis = root.optLong("activeStartedAtMillis")
-                    .takeIf { root.has("activeStartedAtMillis") }
+                    .takeIf { root.has("activeStartedAtMillis") },
+                activeTripCategory = root.optString("activeTripCategory", TripCategory.Electric.name)
+                    .let { runCatching { TripCategory.valueOf(it) }.getOrDefault(TripCategory.Electric) },
+                activeTripMovingDurationSeconds = root.optDouble("activeMovingDurationSeconds", 0.0),
+                activeTripCaloriesKcal = root.optDouble("activeCaloriesKcal", 0.0)
             )
         }.getOrDefault(MileageHistoryState())
     }

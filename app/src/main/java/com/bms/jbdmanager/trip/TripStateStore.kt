@@ -40,6 +40,9 @@ internal class TripStateStore(context: Context) {
             .putString("regen_power_w", value.maximumRegeneration?.powerW?.toString())
             .putString("regen_speed_kmh", value.maximumRegeneration?.speedKmh?.toString())
             .putLong("regen_recorded_at", value.maximumRegeneration?.recordedAtMillis ?: -1L)
+            .putString("bicycle_weight_kg", value.bicycleBodyWeightKg.toString())
+            .putString("bicycle_moving_duration_s", value.bicycleMovingDurationSeconds.toString())
+            .putString("bicycle_calories_kcal", value.bicycleCaloriesKcal.toString())
             .putBoolean("range_active", value.rangeTest.isActive)
             .putInt("range_target_speed", value.rangeTest.targetSpeedKmh)
             .putInt("range_tolerance", value.rangeTest.speedToleranceKmh)
@@ -108,6 +111,12 @@ internal class TripStateStore(context: Context) {
                         recordedAtMillis = preferences.getLong("regen_recorded_at", -1L).takeIf { it >= 0L } ?: 0L
                     )
                 },
+            bicycleBodyWeightKg = preferences.getString("bicycle_weight_kg", null)?.toDoubleOrNull()
+                ?.coerceIn(30.0, 250.0) ?: 70.0,
+            bicycleMovingDurationSeconds = preferences.getString("bicycle_moving_duration_s", null)
+                ?.toDoubleOrNull() ?: 0.0,
+            bicycleCaloriesKcal = preferences.getString("bicycle_calories_kcal", null)
+                ?.toDoubleOrNull() ?: 0.0,
             rangeTest = RangeTestState(
                 isActive = preferences.getBoolean("range_active", false),
                 targetSpeedKmh = preferences.getInt("range_target_speed", 40),

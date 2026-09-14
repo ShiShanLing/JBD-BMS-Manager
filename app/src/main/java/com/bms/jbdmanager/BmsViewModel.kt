@@ -169,7 +169,7 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
     fun setLocationPermissionGranted(granted: Boolean) {
         _uiState.update { it.copy(locationPermissionGranted = granted) }
         if (granted) {
-            if (TripTracker.state.value.isMileageOnly) {
+            if (TripTracker.state.value.isTracking && TripTracker.state.value.trackingMode != com.bms.jbdmanager.model.TripTrackingMode.Bms) {
                 if (!ensureTripTrackingService()) {
                     TripTracker.finish("无法启动后台定位")
                     onError("GPS 行程服务启动失败，请保持 App 在前台后重试")
@@ -201,7 +201,7 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
     //MARK:开始扫描
     //startScan 检查权限和当前连接状态后开始附近设备扫描，并清空已过期的临时扫描结果。
     fun startScan() {
-        if (TripTracker.state.value.isTracking && TripTracker.state.value.isMileageOnly) {
+        if (TripTracker.state.value.isTracking && TripTracker.state.value.trackingMode != com.bms.jbdmanager.model.TripTrackingMode.Bms) {
             onError("请先结束当前 GPS 行程")
             return
         }
@@ -225,7 +225,7 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
     //MARK:连接设备
     //connect 根据蓝牙地址建立新连接，并在连接前重置上一会话的临时通信状态。
     fun connect(address: String) {
-        if (TripTracker.state.value.isTracking && TripTracker.state.value.isMileageOnly) {
+        if (TripTracker.state.value.isTracking && TripTracker.state.value.trackingMode != com.bms.jbdmanager.model.TripTrackingMode.Bms) {
             onError("请先结束当前 GPS 行程")
             return
         }
@@ -301,6 +301,65 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
         getApplication<Application>().stopService(tripServiceIntent)
         _uiState.update { it.copy(gpsSpeed = GpsSpeedState()) }
     }
+
+    //MARK:开始自行车
+    //结束并归档其他活动行程后启动自行车 GPS 记录；该模式主动断开 BMS，避免自动连接覆盖骑行页面。
+    fun startBicycleTrip(): Boolean {
+        val application = getApplication<Application>()
+        if (!_uiState.value.locationPermissionGranted) {
+            onError("请先允许精确位置权限")
+            return false
+        }
+        if (TripTracker.state.value.isTracking && TripTracker.state.value.isBicycle) {
+            return ensureTripTrackingService()
+        }
+        saveLastSnapshot()
+        if (TripTracker.state.value.isTracking) TripTracker.finish("已切换为自行车骑行")
+        gpsSpeedTracker.reset()
+        TripTracker.resetAutoStartSuppression()
+        TripTracker.beginBicycle()
+        if (!ensureTripTrackingService()) {
+            TripTracker.finish("无法启动后台定位")
+            application.stopService(tripServiceIntent)
+            onError("自行车行程服务启动失败，请保持 App 在前台后重试")
+            return false
+        }
+        manualDisconnect = true
+        autoConnectAttempted = true
+        cancelReconnect()
+        reconnectAttempt = 0
+        bleManager.stopScan()
+        val shouldDisconnectBle = _uiState.value.phase !in setOf(ConnectionPhase.Idle, ConnectionPhase.Error)
+        _uiState.update {
+            it.copy(
+                phase = if (shouldDisconnectBle) ConnectionPhase.Disconnecting else ConnectionPhase.Idle,
+                isScanning = false,
+                reconnectAttempt = 0,
+                reconnectInSeconds = null,
+                errorMessage = null
+            )
+        }
+        if (shouldDisconnectBle) bleManager.disconnect() else {
+            manualDisconnect = false
+            _uiState.update { it.copy(connectedAddress = null, connectedName = null) }
+        }
+        return true
+    }
+
+    //MARK:结束自行车
+    //归档自行车距离、有效骑行时间和估算热量，然后停止后台定位与实时速度更新。
+    fun finishBicycleTrip() {
+        val trip = TripTracker.state.value
+        if (!trip.isTracking || !trip.isBicycle) return
+        gpsSpeedTracker.reset()
+        TripTracker.finish("自行车骑行已结束")
+        getApplication<Application>().stopService(tripServiceIntent)
+        _uiState.update { it.copy(gpsSpeed = GpsSpeedState()) }
+    }
+
+    //MARK:设置体重
+    //保存自行车热量估算体重，当前骑行后续采样与下一次骑行都会使用新值。
+    fun setBicycleBodyWeight(weightKg: Double) = TripTracker.setBicycleBodyWeight(weightKg)
 
     //MARK:重置换电行程
     //把当前换电里程归档后立即开始新的一段，沿用原倒计时目标；定位服务无法继续时结束新行程并提示错误。
@@ -1333,7 +1392,7 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
         saveLastSnapshot()
         automaticCapacityTestStore.save(_uiState.value.automaticCapacityTest)
         val activeTrip = TripTracker.state.value
-        val preserveGpsSpeed = activeTrip.isTracking && (!manualDisconnect || activeTrip.isMileageOnly)
+        val preserveGpsSpeed = activeTrip.isTracking && (!manualDisconnect || activeTrip.trackingMode != com.bms.jbdmanager.model.TripTrackingMode.Bms)
         if (!preserveGpsSpeed) {
             gpsSpeedTracker.reset()
         }
@@ -1809,7 +1868,7 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
     private fun startOrUpdateTripTracking(info: com.bms.jbdmanager.model.BmsBasicInfo? = _uiState.value.basicInfo) {
         val state = _uiState.value
         if (!state.locationPermissionGranted || state.phase != ConnectionPhase.Ready || info == null) return
-        if (TripTracker.state.value.isTracking && TripTracker.state.value.isMileageOnly) return
+        if (TripTracker.state.value.isTracking && TripTracker.state.value.trackingMode != com.bms.jbdmanager.model.TripTrackingMode.Bms) return
         if (TripTracker.isAutoStartSuppressed()) return
         val startingNewTrip = !TripTracker.state.value.isTracking
         if (startingNewTrip) {
@@ -1909,7 +1968,10 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
         return MileageHistoryState(
             sessions = sessions,
             activeTripDistanceMeters = activeDistance,
-            activeTripStartedAtMillis = activeStartedAt
+            activeTripStartedAtMillis = activeStartedAt,
+            activeTripCategory = if (trip.isBicycle) com.bms.jbdmanager.model.TripCategory.Bicycle else com.bms.jbdmanager.model.TripCategory.Electric,
+            activeTripMovingDurationSeconds = if (trip.isBicycle) trip.bicycleMovingDurationSeconds else 0.0,
+            activeTripCaloriesKcal = if (trip.isBicycle) trip.bicycleCaloriesKcal else 0.0
         )
     }
 
@@ -1928,7 +1990,7 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
     //MARK:自动连接
     //tryAutoConnect 在蓝牙可用、权限完整且本次尚未尝试时连接最后保存的设备，否则开始扫描。
     private fun tryAutoConnect(supported: Boolean, enabled: Boolean) {
-        if (TripTracker.state.value.isTracking && TripTracker.state.value.isMileageOnly) return
+        if (TripTracker.state.value.isTracking && TripTracker.state.value.trackingMode != com.bms.jbdmanager.model.TripTrackingMode.Bms) return
         if (autoConnectAttempted || !supported || !enabled || !_uiState.value.permissionsGranted) return
         if (_uiState.value.phase != ConnectionPhase.Idle) return
         val saved = savedDeviceStore.load()

@@ -39,6 +39,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.bms.jbdmanager.model.BmsUiState
+import com.bms.jbdmanager.model.TripCategory
 import com.bms.jbdmanager.R
 import kotlinx.coroutines.delay
 import java.util.Locale
@@ -152,7 +153,7 @@ internal fun MileageOnlyTripScreen(
             )
             TripValueCard(
                 title = "今日累计",
-                value = String.format(Locale.US, "%.2f km", state.mileageHistory.todayDistanceKm()),
+                value = String.format(Locale.US, "%.2f km", state.mileageHistory.forCategory(TripCategory.Electric).todayDistanceKm()),
                 modifier = Modifier.weight(1f)
             )
         }
@@ -342,7 +343,7 @@ private fun CountdownCard(
 @Composable
 //MARK:行程数值卡
 //TripValueCard 绘制行程值卡片卡片，将同一主题的标题、关键数值和辅助信息组合展示。
-private fun TripValueCard(
+internal fun TripValueCard(
     title: String,
     value: String,
     modifier: Modifier = Modifier,
@@ -370,7 +371,7 @@ private fun TripValueCard(
 
 //MARK:格式化速度
 //formatSpeed 将速度转换为适合当前页面展示的文本，并统一精度、单位或正负号格式。
-private fun formatSpeed(value: Double): String = String.format(Locale.US, "%.1f", value.coerceAtLeast(0.0))
+internal fun formatSpeed(value: Double): String = String.format(Locale.US, "%.1f", value.coerceAtLeast(0.0))
 
 //MARK:格式化里程
 //将米转换为公里，并根据数值大小选择一位或两位小数。

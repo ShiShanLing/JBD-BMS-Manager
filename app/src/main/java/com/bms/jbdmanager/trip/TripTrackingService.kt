@@ -313,6 +313,7 @@ class TripTrackingService : Service(), LocationListener {
     //buildNotification 维护通知所需的后台定位、通知或状态观察流程。
     private fun buildNotification(state: TripState): android.app.Notification {
         if (state.isMileageOnly) return buildMileageOnlyNotification(state)
+        if (state.isBicycle) return buildBicycleNotification(state)
         val soc = state.currentSocPercent ?: state.startSocPercent ?: 0
         val currentText = when {
             state.currentA < -0.05 -> "放电 ${decimal(state.currentA, 1)}A"
@@ -358,6 +359,45 @@ class TripTrackingService : Service(), LocationListener {
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .setContentIntent(openAppIntent)
             .addAction(0, "结束行程", stopIntent)
+            .addAction(0, "退出全部", exitAllIntent)
+            .build()
+    }
+
+    //MARK:自行车通知
+    //构建自行车后台常驻通知，集中展示实时速度、本次里程、有效骑行时间和估算热量。
+    private fun buildBicycleNotification(state: TripState): android.app.Notification {
+        val speedText = decimal(state.currentSpeedKmh, 1)
+        val distanceText = decimal(state.distanceKm, 2)
+        val caloriesText = decimal(state.bicycleCaloriesKcal, 0)
+        val movingMinutes = (state.bicycleMovingDurationSeconds / 60.0).toInt()
+        val openAppIntent = PendingIntent.getActivity(
+            this, 0, Intent(this, MainActivity::class.java),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val stopIntent = PendingIntent.getService(
+            this, 1, Intent(this, TripTrackingService::class.java).setAction(ACTION_STOP),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val exitAllIntent = PendingIntent.getActivity(
+            this, 2,
+            Intent(this, MainActivity::class.java).putExtra(MainActivity.EXTRA_EXIT_ALL, true)
+                .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val summary = "当前 $speedText km/h · 本次 $distanceText km"
+        return NotificationCompat.Builder(this, NOTIFICATION_CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_launcher_monochrome)
+            .setContentTitle("自行车骑行 · $caloriesText kcal")
+            .setContentText(summary)
+            .setStyle(NotificationCompat.BigTextStyle().bigText("$summary\n近5秒均速 ${decimal(average5SecondSpeedKmh, 1)} km/h · 有效骑行 $movingMinutes 分钟"))
+            .setShortCriticalText("骑行")
+            .setRequestPromotedOngoing(true)
+            .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .setSilent(true)
+            .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
+            .setContentIntent(openAppIntent)
+            .addAction(0, "结束骑行", stopIntent)
             .addAction(0, "退出全部", exitAllIntent)
             .build()
     }

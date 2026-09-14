@@ -29,6 +29,7 @@ import com.bms.jbdmanager.model.BmsUiState
 import com.bms.jbdmanager.model.CellSummary
 import com.bms.jbdmanager.model.GpsSpeedState
 import com.bms.jbdmanager.model.MileageHistoryState
+import com.bms.jbdmanager.model.TripCategory
 import com.bms.jbdmanager.model.RegenerationPeak
 import com.bms.jbdmanager.model.TripState
 import java.time.Instant
@@ -118,7 +119,7 @@ private fun TripCard(
     locationPermissionGranted: Boolean,
     onRequestLocationPermission: () -> Unit
 ) {
-    val todayKm = mileageHistory.todayDistanceKm()
+    val todayKm = mileageHistory.forCategory(TripCategory.Electric).todayDistanceKm()
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.46f)),
         shape = RoundedCornerShape(14.dp)

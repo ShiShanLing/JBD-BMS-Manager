@@ -49,6 +49,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.bms.jbdmanager.model.BmsUiState
+import com.bms.jbdmanager.model.TripCategory
 import com.bms.jbdmanager.ui.theme.JbdBmsTheme
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -77,7 +78,9 @@ internal fun PipScreen(state: BmsUiState) {
                 .fillMaxSize()
                 .padding(horizontal = layout.horizontalPadding, vertical = layout.verticalPadding)
         ) {
-            if (state.trip.isMileageOnly) {
+            if (state.trip.isBicycle) {
+                PipBicycleLayout(state, layout)
+            } else if (state.trip.isMileageOnly) {
                 PipMileageOnlyLayout(state, layout)
             } else {
                 AnimatedContent(
@@ -88,6 +91,70 @@ internal fun PipScreen(state: BmsUiState) {
                     if (isCharging) PipChargingLayout(state, layout) else PipRidingLayout(state, layout)
                 }
             }
+        }
+    }
+}
+
+@Composable
+//MARK:自行车小窗
+//在画中画中保留自行车最重要的速度、里程和热量，并随窗口尺寸沿用统一字号缩放规则。
+private fun PipBicycleLayout(state: BmsUiState, layout: PipLayoutSpec) {
+    val trip = state.trip
+    Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.SpaceBetween) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("自行车", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = layout.headerLabelSize)
+                Text(
+                    "${compactNumber(trip.distanceKm, 2)} km",
+                    color = MaterialTheme.colorScheme.primary,
+                    fontSize = layout.socSize,
+                    lineHeight = layout.socLineHeight,
+                    fontWeight = FontWeight.Black,
+                    maxLines = 1
+                )
+            }
+            Column(Modifier.weight(1f), horizontalAlignment = Alignment.End) {
+                Text("估算热量", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = layout.metricLabelSize)
+                Text(
+                    "${compactNumber(trip.bicycleCaloriesKcal, 0)} kcal",
+                    color = MaterialTheme.colorScheme.secondary,
+                    fontSize = layout.topMetricValueSize,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1
+                )
+            }
+        }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(layout.speedMetricSpacing)) {
+            PipInlineSpeedMetric(
+                label = "当前",
+                speed = compactNumber(state.gpsSpeed.currentKmh, 1),
+                accent = MaterialTheme.colorScheme.primary,
+                valueSize = layout.speedSize,
+                lineHeight = layout.speedLineHeight,
+                unitSize = layout.speedUnitSize,
+                labelSize = layout.speedRowLabelSize,
+                modifier = Modifier.weight(1f).height(layout.bottomSpeedHeight)
+            )
+            PipInlineSpeedMetric(
+                label = "近5秒",
+                speed = compactNumber(state.gpsSpeed.average5SecondsKmh, 1),
+                accent = MaterialTheme.colorScheme.onSurface,
+                valueSize = layout.maximumSpeedSize,
+                lineHeight = layout.maximumSpeedLineHeight,
+                unitSize = layout.maximumSpeedUnitSize,
+                labelSize = layout.speedRowLabelSize,
+                modifier = Modifier.weight(1f).height(layout.bottomSpeedHeight)
+            )
+            PipInlineSpeedMetric(
+                label = "最高",
+                speed = compactNumber(state.gpsSpeed.maximumKmh, 1),
+                accent = MaterialTheme.colorScheme.onSurface,
+                valueSize = layout.maximumSpeedSize,
+                lineHeight = layout.maximumSpeedLineHeight,
+                unitSize = layout.maximumSpeedUnitSize,
+                labelSize = layout.speedRowLabelSize,
+                modifier = Modifier.weight(1f).height(layout.bottomSpeedHeight)
+            )
         }
     }
 }
@@ -172,7 +239,7 @@ private fun PipRidingLayout(state: BmsUiState, layout: PipLayoutSpec) {
     val rangeText = state.trip.estimatedRemainingKm?.let { "${compactNumber(it)} km" } ?: "采集中"
     val dischargeCurrent = if (discharging) abs(info!!.currentA) else 0.0
     val socProgress = (info?.stateOfChargePercent ?: 0) / 100f
-    val todayKm = state.mileageHistory.todayDistanceKm()
+    val todayKm = state.mileageHistory.forCategory(TripCategory.Electric).todayDistanceKm()
 
     Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.SpaceBetween) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -280,7 +347,7 @@ private fun PipMileageOnlyLayout(state: BmsUiState, layout: PipLayoutSpec) {
     }
     val targetKm = trip.mileageCountdownTargetKm.coerceAtLeast(1)
     val progress = (remainingKm / targetKm).toFloat().coerceIn(0f, 1f)
-    val todayKm = state.mileageHistory.todayDistanceKm()
+    val todayKm = state.mileageHistory.forCategory(TripCategory.Electric).todayDistanceKm()
 
     Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.SpaceBetween) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {

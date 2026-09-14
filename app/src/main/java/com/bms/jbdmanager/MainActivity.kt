@@ -265,7 +265,7 @@ class MainActivity : ComponentActivity() {
     private fun isPictureInPictureEligible(state: BmsUiState): Boolean =
         // 有真实 BMS 数据或正在进行纯 GPS 行程时才允许小窗，扫描页和空白详情不自动进入。
         (state.phase == ConnectionPhase.Ready && state.basicInfo != null) ||
-            (state.trip.isTracking && state.trip.isMileageOnly)
+            (state.trip.isTracking && state.trip.trackingMode != com.bms.jbdmanager.model.TripTrackingMode.Bms)
 
     //MARK:更新更新参数
     //updatePictureInPictureParams 把当前是否允许自动进入画中画写入 Activity 参数，并忽略结束阶段的系统异常。

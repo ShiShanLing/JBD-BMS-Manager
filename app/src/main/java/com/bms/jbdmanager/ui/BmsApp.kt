@@ -54,7 +54,9 @@ fun BmsApp(
     }
     var showExitConfirmation by remember { androidx.compose.runtime.mutableStateOf(false) }
     var showMileageOnlyConfirmation by remember { androidx.compose.runtime.mutableStateOf(false) }
+    var showBicycleConfirmation by remember { androidx.compose.runtime.mutableStateOf(false) }
     var mileageOnlyPermissionPending by rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
+    var bicyclePermissionPending by rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
     var showAppVersion by remember { androidx.compose.runtime.mutableStateOf(false) }
     var previewMode by rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
     var previewScenarioOrdinal by rememberSaveable { mutableIntStateOf(0) }
@@ -141,6 +143,15 @@ fun BmsApp(
         }
     }
 
+    LaunchedEffect(state.locationPermissionGranted, bicyclePermissionPending) {
+        if (state.locationPermissionGranted && bicyclePermissionPending) {
+            bicyclePermissionPending = false
+            previewMode = false
+            showDashboard = false
+            viewModel.startBicycleTrip()
+        }
+    }
+
     val requestMileageOnlyTrip: () -> Unit = {
         if (state.locationPermissionGranted) {
             previewMode = false
@@ -148,6 +159,16 @@ fun BmsApp(
             viewModel.startMileageOnlyTrip()
         } else {
             mileageOnlyPermissionPending = true
+            requestLocationPermission()
+        }
+    }
+    val requestBicycleTrip: () -> Unit = {
+        if (state.locationPermissionGranted) {
+            previewMode = false
+            showDashboard = false
+            viewModel.startBicycleTrip()
+        } else {
+            bicyclePermissionPending = true
             requestLocationPermission()
         }
     }
@@ -170,6 +191,13 @@ fun BmsApp(
                     onResetSegment = viewModel::resetMileageOnlyTrip,
                     onSetCountdownTarget = viewModel::setMileageCountdownTarget,
                     onAcknowledgeCountdown = viewModel::acknowledgeMileageCountdown,
+                    onEnterPictureInPicture = enterPictureInPicture
+                )
+            } else if (state.trip.isTracking && state.trip.isBicycle) {
+                BicycleTripScreen(
+                    state = state,
+                    onFinish = viewModel::finishBicycleTrip,
+                    onSetBodyWeight = viewModel::setBicycleBodyWeight,
                     onEnterPictureInPicture = enterPictureInPicture
                 )
             } else if (showLastSnapshot && lastSnapshot != null) {
@@ -271,6 +299,7 @@ fun BmsApp(
                     disconnect = viewModel::disconnect,
                     refreshNearby = refreshNearby,
                     startMileageOnlyTrip = requestMileageOnlyTrip,
+                    startBicycleTrip = { showBicycleConfirmation = true },
                     showDashboard = { showDashboard = true },
                     showPreview = {
                         previewScenarioOrdinal = 0
@@ -390,6 +419,19 @@ fun BmsApp(
                         requestMileageOnlyTrip()
                     }
                 ) { Text("开始 GPS 行程", color = MaterialTheme.colorScheme.primary) }
+            }
+        )
+    }
+    if (showBicycleConfirmation) {
+        AlertDialog(
+            onDismissRequest = { showBicycleConfirmation = false },
+            title = { Text("开始自行车骑行？") },
+            text = { Text("自行车里程会与电动车分开保存；热量根据体重、实时速度和有效骑行时间估算。") },
+            dismissButton = { TextButton(onClick = { showBicycleConfirmation = false }) { Text("取消") } },
+            confirmButton = {
+                TextButton(onClick = { showBicycleConfirmation = false; requestBicycleTrip() }) {
+                    Text("开始骑行", color = MaterialTheme.colorScheme.primary)
+                }
             }
         )
     }

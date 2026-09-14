@@ -19,7 +19,9 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -32,6 +34,7 @@ import androidx.compose.ui.unit.sp
 import com.bms.jbdmanager.R
 import com.bms.jbdmanager.model.BmsUiState
 import com.bms.jbdmanager.model.TripCategory
+import kotlinx.coroutines.delay
 import java.util.Locale
 
 @Composable
@@ -45,6 +48,13 @@ internal fun BicycleTripScreen(
 ) {
     var showFinishConfirmation by remember { mutableStateOf(false) }
     var showWeightDialog by remember { mutableStateOf(false) }
+    var nowMillis by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(state.trip.startedAtMillis) {
+        while (true) {
+            nowMillis = System.currentTimeMillis()
+            delay(1_000L)
+        }
+    }
     BackHandler { showFinishConfirmation = true }
     val bicycleHistory = state.mileageHistory.forCategory(TripCategory.Bicycle)
 
@@ -88,9 +98,15 @@ internal fun BicycleTripScreen(
         }
         Spacer(Modifier.height(10.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            TripValueCard(
+                "总计时",
+                formatSeconds(((nowMillis - (state.trip.startedAtMillis ?: nowMillis)).coerceAtLeast(0L)) / 1_000.0),
+                Modifier.weight(1f)
+            )
             TripValueCard("今日自行车", String.format(Locale.US, "%.2f km", bicycleHistory.todayDistanceKm()), Modifier.weight(1f))
-            TripValueCard("定位状态", state.trip.gpsMessage.ifBlank { "等待 GPS" }, Modifier.weight(1f))
         }
+        Spacer(Modifier.height(10.dp))
+        TripValueCard("定位状态", state.trip.gpsMessage.ifBlank { "等待 GPS" }, Modifier.fillMaxWidth())
         Spacer(Modifier.height(12.dp))
         OutlinedButton(onClick = { showWeightDialog = true }, modifier = Modifier.fillMaxWidth()) {
             Text("热量估算体重：${compactNumber(state.trip.bicycleBodyWeightKg, 1)} kg")

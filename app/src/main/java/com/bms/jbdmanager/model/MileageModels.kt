@@ -23,6 +23,8 @@ data class TripSessionRecord(
     val estimatedCaloriesKcal: Double = 0.0
 ) {
     val distanceKm: Double get() = distanceMeters / 1_000.0
+    val totalDurationSeconds: Double
+        get() = ((finishedAtMillis - startedAtMillis).coerceAtLeast(0L) / 1_000.0)
     val date: LocalDate
         get() = Instant.ofEpochMilli(startedAtMillis).atZone(ZoneId.systemDefault()).toLocalDate()
 }
@@ -39,6 +41,7 @@ data class DailyMileage(
     val consumedAh: Double = 0.0,
     val consumedWh: Double = 0.0,
     val tripCount: Int = 0,
+    val totalDurationSeconds: Double = 0.0,
     val movingDurationSeconds: Double = 0.0,
     val estimatedCaloriesKcal: Double = 0.0
 ) {
@@ -54,6 +57,7 @@ enum class MileagePeriod { Day, Week, Month, Year }
 data class MileagePeriodSummary(
     val distanceKm: Double,
     val tripCount: Int,
+    val totalDurationSeconds: Double = 0.0,
     val movingDurationSeconds: Double = 0.0,
     val estimatedCaloriesKcal: Double = 0.0
 )
@@ -105,6 +109,7 @@ data class MileageHistoryState(
                 consumedAh = trips.sumOf { it.consumedAh },
                 consumedWh = trips.sumOf { it.consumedWh },
                 tripCount = trips.size,
+                totalDurationSeconds = trips.sumOf { it.totalDurationSeconds },
                 movingDurationSeconds = trips.sumOf { it.movingDurationSeconds },
                 estimatedCaloriesKcal = trips.sumOf { it.estimatedCaloriesKcal }
             )
@@ -121,6 +126,8 @@ data class MileageHistoryState(
                 consumedAh = existing?.consumedAh ?: 0.0,
                 consumedWh = existing?.consumedWh ?: 0.0,
                 tripCount = (existing?.tripCount ?: 0) + if (existing != null) 0 else 1,
+                totalDurationSeconds = (existing?.totalDurationSeconds ?: 0.0) +
+                    ((System.currentTimeMillis() - activeTripStartedAtMillis).coerceAtLeast(0L) / 1_000.0),
                 movingDurationSeconds = (existing?.movingDurationSeconds ?: 0.0) + activeTripMovingDurationSeconds,
                 estimatedCaloriesKcal = (existing?.estimatedCaloriesKcal ?: 0.0) + activeTripCaloriesKcal
             )
@@ -159,6 +166,7 @@ data class MileageHistoryState(
                 MileagePeriodSummary(
                     distanceKm = record?.distanceKm ?: 0.0,
                     tripCount = record?.tripCount ?: 0,
+                    totalDurationSeconds = record?.totalDurationSeconds ?: 0.0,
                     movingDurationSeconds = record?.movingDurationSeconds ?: 0.0,
                     estimatedCaloriesKcal = record?.estimatedCaloriesKcal ?: 0.0
                 )
@@ -170,6 +178,7 @@ data class MileageHistoryState(
                 MileagePeriodSummary(
                     distanceKm = inWeek.sumOf { it.distanceKm },
                     tripCount = inWeek.sumOf { it.tripCount },
+                    totalDurationSeconds = inWeek.sumOf { it.totalDurationSeconds },
                     movingDurationSeconds = inWeek.sumOf { it.movingDurationSeconds },
                     estimatedCaloriesKcal = inWeek.sumOf { it.estimatedCaloriesKcal }
                 )
@@ -180,6 +189,7 @@ data class MileageHistoryState(
                 MileagePeriodSummary(
                     distanceKm = inMonth.sumOf { it.distanceKm },
                     tripCount = inMonth.sumOf { it.tripCount },
+                    totalDurationSeconds = inMonth.sumOf { it.totalDurationSeconds },
                     movingDurationSeconds = inMonth.sumOf { it.movingDurationSeconds },
                     estimatedCaloriesKcal = inMonth.sumOf { it.estimatedCaloriesKcal }
                 )
@@ -189,6 +199,7 @@ data class MileageHistoryState(
                 MileagePeriodSummary(
                     distanceKm = inYear.sumOf { it.distanceKm },
                     tripCount = inYear.sumOf { it.tripCount },
+                    totalDurationSeconds = inYear.sumOf { it.totalDurationSeconds },
                     movingDurationSeconds = inYear.sumOf { it.movingDurationSeconds },
                     estimatedCaloriesKcal = inYear.sumOf { it.estimatedCaloriesKcal }
                 )

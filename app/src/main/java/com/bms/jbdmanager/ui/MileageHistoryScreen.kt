@@ -115,6 +115,7 @@ internal fun MileageHistoryPage(history: MileageHistoryState) {
                 periodLabel = periodLabel,
                 tripCount = periodSummary.tripCount,
                 category = category,
+                totalDurationSeconds = periodSummary.totalDurationSeconds,
                 movingDurationSeconds = periodSummary.movingDurationSeconds,
                 caloriesKcal = periodSummary.estimatedCaloriesKcal
             )
@@ -178,6 +179,7 @@ private fun MileageSummaryCard(
     periodLabel: String,
     tripCount: Int,
     category: TripCategory,
+    totalDurationSeconds: Double,
     movingDurationSeconds: Double,
     caloriesKcal: Double
 ) {
@@ -204,7 +206,7 @@ private fun MileageSummaryCard(
             )
             if (category == TripCategory.Bicycle) {
                 Text(
-                    "有效骑行 ${formatHistoryDuration(movingDurationSeconds)} · 估算 ${caloriesKcal.toInt()} kcal",
+                    "有效 ${formatHistoryDuration(movingDurationSeconds)} · 总计时 ${formatHistoryDuration(totalDurationSeconds)} · 估算 ${caloriesKcal.toInt()} kcal",
                     color = MaterialTheme.colorScheme.secondary,
                     fontSize = 11.sp,
                     fontWeight = FontWeight.SemiBold

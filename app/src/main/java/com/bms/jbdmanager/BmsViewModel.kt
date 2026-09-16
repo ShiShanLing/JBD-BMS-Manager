@@ -354,7 +354,15 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
         gpsSpeedTracker.reset()
         TripTracker.finish("自行车骑行已结束")
         getApplication<Application>().stopService(tripServiceIntent)
-        _uiState.update { it.copy(gpsSpeed = GpsSpeedState()) }
+        // 归档完成后同步读取最终状态和历史，避免等待异步状态收集时短暂显示“今天没有记录”。
+        val finishedTrip = TripTracker.state.value
+        _uiState.update {
+            it.copy(
+                trip = finishedTrip,
+                gpsSpeed = GpsSpeedState(),
+                mileageHistory = buildMileageHistory(finishedTrip)
+            )
+        }
     }
 
     //MARK:设置体重

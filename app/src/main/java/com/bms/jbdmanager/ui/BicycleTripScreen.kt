@@ -1,6 +1,9 @@
 package com.bms.jbdmanager.ui
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -12,6 +15,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -33,6 +38,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.bms.jbdmanager.R
 import com.bms.jbdmanager.model.BmsUiState
+import com.bms.jbdmanager.model.MileagePeriod
 import com.bms.jbdmanager.model.TripCategory
 import kotlinx.coroutines.delay
 import java.util.Locale
@@ -57,6 +63,8 @@ internal fun BicycleTripScreen(
     }
     BackHandler { showFinishConfirmation = true }
     val bicycleHistory = state.mileageHistory.forCategory(TripCategory.Bicycle)
+    // 每次重新开始骑行时本次热量会从零累计；页面主卡片需要合并今天已经归档的骑行和当前活动行程。
+    val todayBicycleSummary = bicycleHistory.periodSummary(MileagePeriod.Day)
 
     Column(
         modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 10.dp)
@@ -75,49 +83,56 @@ internal fun BicycleTripScreen(
                 )
             }
         }
-        Spacer(Modifier.height(22.dp))
-        Text("当前时速", modifier = Modifier.align(Alignment.CenterHorizontally), color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Row(Modifier.align(Alignment.CenterHorizontally), verticalAlignment = Alignment.Bottom) {
-            Text(formatSpeed(state.gpsSpeed.currentKmh), color = MaterialTheme.colorScheme.primary, fontSize = 54.sp, fontWeight = FontWeight.Bold)
-            Text(" km/h", modifier = Modifier.padding(bottom = 10.dp), fontSize = 15.sp)
-        }
-        Spacer(Modifier.height(18.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            TripValueCard("本次里程", String.format(Locale.US, "%.2f km", state.trip.distanceKm), Modifier.weight(1f), true)
-            TripValueCard("估算热量", String.format(Locale.US, "%.0f kcal", state.trip.bicycleCaloriesKcal), Modifier.weight(1f), true)
-        }
-        Spacer(Modifier.height(10.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            TripValueCard("近 5 秒平均", "${formatSpeed(state.gpsSpeed.average5SecondsKmh)} km/h", Modifier.weight(1f))
-            TripValueCard("最高时速", "${formatSpeed(state.gpsSpeed.maximumKmh)} km/h", Modifier.weight(1f))
-        }
-        Spacer(Modifier.height(10.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            TripValueCard("骑行均速", String.format(Locale.US, "%.1f km/h", state.trip.bicycleAverageSpeedKmh), Modifier.weight(1f))
-            TripValueCard("有效骑行", formatSeconds(state.trip.bicycleMovingDurationSeconds), Modifier.weight(1f))
-        }
-        Spacer(Modifier.height(10.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            TripValueCard(
-                "总计时",
-                formatSeconds(((nowMillis - (state.trip.startedAtMillis ?: nowMillis)).coerceAtLeast(0L)) / 1_000.0),
-                Modifier.weight(1f)
+        Column(
+            modifier = Modifier.weight(1f).verticalScroll(rememberScrollState()),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Spacer(Modifier.height(22.dp))
+            Text("当前时速", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(verticalAlignment = Alignment.Bottom) {
+                Text(formatSpeed(state.gpsSpeed.currentKmh), color = MaterialTheme.colorScheme.primary, fontSize = 54.sp, fontWeight = FontWeight.Bold)
+                Text(" km/h", modifier = Modifier.padding(bottom = 10.dp), fontSize = 15.sp)
+            }
+            Spacer(Modifier.height(18.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                TripValueCard("本次里程", String.format(Locale.US, "%.2f km", state.trip.distanceKm), Modifier.weight(1f), true)
+                TripValueCard("今日总热量", String.format(Locale.US, "%.0f kcal", todayBicycleSummary.estimatedCaloriesKcal), Modifier.weight(1f), true)
+            }
+            Spacer(Modifier.height(10.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                TripValueCard("近 5 秒平均", "${formatSpeed(state.gpsSpeed.average5SecondsKmh)} km/h", Modifier.weight(1f))
+                TripValueCard("最高时速", "${formatSpeed(state.gpsSpeed.maximumKmh)} km/h", Modifier.weight(1f))
+            }
+            Spacer(Modifier.height(10.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                TripValueCard("骑行均速", String.format(Locale.US, "%.1f km/h", state.trip.bicycleAverageSpeedKmh), Modifier.weight(1f))
+                TripValueCard("有效骑行", formatSeconds(state.trip.bicycleMovingDurationSeconds), Modifier.weight(1f))
+            }
+            Spacer(Modifier.height(10.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                TripValueCard(
+                    "总计时",
+                    formatSeconds(((nowMillis - (state.trip.startedAtMillis ?: nowMillis)).coerceAtLeast(0L)) / 1_000.0),
+                    Modifier.weight(1f)
+                )
+                BicycleWeightCard(
+                    weightKg = state.trip.bicycleBodyWeightKg,
+                    onClick = { showWeightDialog = true },
+                    modifier = Modifier.weight(1f)
+                )
+            }
+            Spacer(Modifier.height(10.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                TripValueCard("今日自行车", String.format(Locale.US, "%.2f km", bicycleHistory.todayDistanceKm()), Modifier.weight(1f))
+                TripValueCard("定位状态", state.trip.gpsMessage.ifBlank { "等待 GPS" }, Modifier.weight(1f))
+            }
+            Text(
+                "热量按速度分段 MET 与有效骑行时间估算；坡度、风阻和心率未知，因此只适合观察趋势。",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 12.sp,
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 12.dp)
             )
-            TripValueCard("今日自行车", String.format(Locale.US, "%.2f km", bicycleHistory.todayDistanceKm()), Modifier.weight(1f))
         }
-        Spacer(Modifier.height(10.dp))
-        TripValueCard("定位状态", state.trip.gpsMessage.ifBlank { "等待 GPS" }, Modifier.fillMaxWidth())
-        Spacer(Modifier.height(12.dp))
-        OutlinedButton(onClick = { showWeightDialog = true }, modifier = Modifier.fillMaxWidth()) {
-            Text("热量估算体重：${compactNumber(state.trip.bicycleBodyWeightKg, 1)} kg")
-        }
-        Text(
-            "热量按速度分段 MET 与有效骑行时间估算；坡度、风阻和心率未知，因此只适合观察趋势。",
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            fontSize = 12.sp,
-            modifier = Modifier.padding(top = 8.dp)
-        )
-        Spacer(Modifier.weight(1f))
         Button(onClick = { showFinishConfirmation = true }, modifier = Modifier.fillMaxWidth().height(50.dp)) {
             Text("结束并保存骑行", fontWeight = FontWeight.SemiBold)
         }
@@ -147,6 +162,31 @@ internal fun BicycleTripScreen(
             dismissButton = { TextButton(onClick = { showWeightDialog = false }) { Text("取消") } },
             confirmButton = { TextButton(onClick = { onSetBodyWeight(weight.toDouble()); showWeightDialog = false }) { Text("保存") } }
         )
+    }
+}
+
+@Composable
+//MARK:体重卡片
+//以与行程指标一致的小卡片展示当前体重；点击后打开体重调整弹框。
+private fun BicycleWeightCard(weightKg: Double, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    Card(
+        onClick = onClick,
+        modifier = modifier.height(94.dp),
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+    ) {
+        Column(
+            modifier = Modifier.fillMaxSize().padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(7.dp)
+        ) {
+            Text("体重 · 点击调整", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
+            Text(
+                "${compactNumber(weightKg, 1)} kg",
+                color = MaterialTheme.colorScheme.primary,
+                fontSize = 20.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+        }
     }
 }
 

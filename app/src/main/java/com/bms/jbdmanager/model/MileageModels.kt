@@ -88,6 +88,13 @@ data class MileageHistoryState(
             .mapNotNull(TripSessionRecord::maximumRegeneration)
             .maxByOrNull(RegenerationPeak::powerW)
 
+    //MARK:默认行程类型
+    //历史页优先展示当前活动行程；没有活动行程时展示最近完成的行程类型，避免自行车记录被默认的电动车筛选隐藏。
+    fun preferredCategory(): TripCategory = when {
+        activeTripStartedAtMillis != null -> activeTripCategory
+        else -> sessions.maxByOrNull { it.finishedAtMillis }?.category ?: TripCategory.Electric
+    }
+
     //MARK:筛选类型
     //只保留指定车辆类型的历史及同类型活动行程，供图表和日历完全隔离展示。
     fun forCategory(category: TripCategory): MileageHistoryState = copy(

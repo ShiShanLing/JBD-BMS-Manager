@@ -62,7 +62,8 @@ import java.time.temporal.TemporalAdjusters
 //MARK:里程历史页
 //MileageHistoryPage 组织里程历史页面的完整页面结构，组合内容区和操作入口，并把事件交给状态持有层。
 internal fun MileageHistoryPage(history: MileageHistoryState) {
-    var category by rememberSaveable { mutableStateOf(TripCategory.Electric) }
+    // 首次进入时跟随当前或最近一段行程，用户刚保存自行车骑行后无需再次手动切换类型。
+    var category by rememberSaveable { mutableStateOf(history.preferredCategory()) }
     var period by remember { mutableStateOf(MileagePeriod.Day) }
     var calendarMonth by remember { mutableIntStateOf(YearMonth.now().monthValue) }
     var calendarYear by remember { mutableIntStateOf(YearMonth.now().year) }

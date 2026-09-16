@@ -9,6 +9,72 @@ import java.time.ZoneId
 //MARK:测试历史状态
 //MileageHistoryStateTest 验证 MileageHistoryState 的正常流程、边界输入和需要长期保持的回归行为。
 class MileageHistoryStateTest {
+
+    @Test
+    fun `历史页默认展示最近完成的自行车行程`() {
+        val state = MileageHistoryState(
+            sessions = listOf(
+                TripSessionRecord(
+                    startedAtMillis = 1_000L,
+                    finishedAtMillis = 2_000L,
+                    distanceMeters = 1_000.0,
+                    consumedAh = 0.0,
+                    consumedWh = 0.0,
+                    category = TripCategory.Electric
+                ),
+                TripSessionRecord(
+                    startedAtMillis = 3_000L,
+                    finishedAtMillis = 4_000L,
+                    distanceMeters = 5_000.0,
+                    consumedAh = 0.0,
+                    consumedWh = 0.0,
+                    category = TripCategory.Bicycle
+                )
+            )
+        )
+
+        assertEquals(TripCategory.Bicycle, state.preferredCategory())
+    }
+
+    @Test
+    fun `活动行程优先于最近完成的行程类型`() {
+        val state = MileageHistoryState(
+            sessions = listOf(
+                TripSessionRecord(
+                    startedAtMillis = 3_000L,
+                    finishedAtMillis = 4_000L,
+                    distanceMeters = 5_000.0,
+                    consumedAh = 0.0,
+                    consumedWh = 0.0,
+                    category = TripCategory.Bicycle
+                )
+            ),
+            activeTripDistanceMeters = 100.0,
+            activeTripStartedAtMillis = 5_000L,
+            activeTripCategory = TripCategory.Electric
+        )
+
+        assertEquals(TripCategory.Electric, state.preferredCategory())
+    }
+
+    @Test
+    fun `今日自行车热量合并多次完成记录和当前行程`() {
+        val today = LocalDate.now()
+        val startedAt = today.atTime(8, 0).atZone(zone).toInstant().toEpochMilli()
+        val history = MileageHistoryState(
+            sessions = listOf(
+                session(today, 5.0).copy(category = TripCategory.Bicycle, estimatedCaloriesKcal = 120.0),
+                session(today, 5.0).copy(category = TripCategory.Bicycle, estimatedCaloriesKcal = 130.0)
+            ),
+            activeTripDistanceMeters = 1_000.0,
+            activeTripStartedAtMillis = startedAt,
+            activeTripCategory = TripCategory.Bicycle,
+            activeTripCaloriesKcal = 50.0
+        ).forCategory(TripCategory.Bicycle)
+
+        assertEquals(300.0, history.periodSummary(MileagePeriod.Day).estimatedCaloriesKcal, 0.0001)
+    }
+
     @Test
     //MARK:测试车辆隔离
     //验证电动车与自行车历史筛选后分别统计，且自行车热量不会混入电动车摘要。

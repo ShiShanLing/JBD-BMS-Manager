@@ -78,6 +78,8 @@ data class CellSummary(
 //MARK:保护参数
 //JbdProtectionParams 将保护参数相关字段组合为不可变值，避免跨层传递时出现部分字段不同步。
 data class JbdProtectionParams(
+    val nominalCapacityAh: Double? = null,
+    val cycleCapacityAh: Double? = null,
     val fullChargeVoltageV: Double? = null,
     val cellOvervoltageV: Double? = null,
     val cellOvervoltageReleaseV: Double? = null,
@@ -96,7 +98,18 @@ data class JbdProtectionParams(
     val dischargeHighTempC: Double? = null,
     val dischargeHighTempReleaseC: Double? = null,
     val dischargeLowTempC: Double? = null,
-    val dischargeLowTempReleaseC: Double? = null
+    val dischargeLowTempReleaseC: Double? = null,
+    val balanceStartVoltageV: Double? = null,
+    val balanceStartDeltaV: Double? = null,
+    val rawRegisters: Map<Int, Int> = emptyMap()
+)
+
+//MARK:管理员写入
+//AdminParameterWriteState 保存保护参数写入事务的页面状态；写入期间禁止重复提交，完成后展示回读校验结果。
+data class AdminParameterWriteState(
+    val inProgress: Boolean = false,
+    val message: String? = null,
+    val succeeded: Boolean? = null
 )
 
 //MARK:扫描设备
@@ -466,6 +479,7 @@ data class BmsUiState(
     val protectionParams: JbdProtectionParams? = null,
     val protectionParamsLoading: Boolean = false,
     val protectionParamsError: String? = null,
+    val adminParameterWrite: AdminParameterWriteState = AdminParameterWriteState(),
     val errorMessage: String? = null,
     val appUpdate: AppUpdateState = AppUpdateState(currentVersionName = "", currentVersionCode = 0),
     val mileageHistory: MileageHistoryState = MileageHistoryState(),

@@ -58,6 +58,8 @@ internal fun Dashboard(
     onRequestOverlayTemperaturePermission: () -> Unit,
     onTestCriticalTemperatureAlert: () -> Unit,
     onRefreshProtectionParams: () -> Unit,
+    onWriteAdminParameters: (String, Map<Int, Double>) -> Boolean,
+    onClearAdminWriteResult: () -> Unit,
     onEnterPictureInPicture: () -> Unit = {},
     isPreview: Boolean = false,
     onCyclePreviewScenario: (() -> Unit)? = null,
@@ -119,7 +121,10 @@ internal fun Dashboard(
                         onShowDataManagement = onShowDataManagement,
                         onRequestFullScreenTemperaturePermission = onRequestFullScreenTemperaturePermission,
                         onRequestOverlayTemperaturePermission = onRequestOverlayTemperaturePermission,
-                        onTestCriticalTemperatureAlert = onTestCriticalTemperatureAlert
+                        onTestCriticalTemperatureAlert = onTestCriticalTemperatureAlert,
+                        onRefreshProtectionParams = onRefreshProtectionParams,
+                        onWriteAdminParameters = onWriteAdminParameters,
+                        onClearAdminWriteResult = onClearAdminWriteResult
                     )
                 }
             }
@@ -263,9 +268,26 @@ private fun DeviceSettingsPage(
     onShowDataManagement: () -> Unit,
     onRequestFullScreenTemperaturePermission: () -> Unit,
     onRequestOverlayTemperaturePermission: () -> Unit,
-    onTestCriticalTemperatureAlert: () -> Unit
+    onTestCriticalTemperatureAlert: () -> Unit,
+    onRefreshProtectionParams: () -> Unit,
+    onWriteAdminParameters: (String, Map<Int, Double>) -> Boolean,
+    onClearAdminWriteResult: () -> Unit
 ) {
     var password by rememberSaveable { androidx.compose.runtime.mutableStateOf("") }
+    var showAdminParameters by rememberSaveable { mutableStateOf(false) }
+    BackHandler(enabled = showAdminParameters && !state.adminParameterWrite.inProgress) {
+        showAdminParameters = false
+    }
+    if (showAdminParameters) {
+        AdminParametersPage(
+            state = state,
+            onBack = { showAdminParameters = false },
+            onRefresh = onRefreshProtectionParams,
+            onWrite = onWriteAdminParameters,
+            onClearResult = onClearAdminWriteResult
+        )
+        return
+    }
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -283,7 +305,7 @@ private fun DeviceSettingsPage(
                 DialogInfoRow("BLE 通道", state.protocolProfile)
                 DialogInfoRow("识别协议", state.detectedProtocol ?: "等待有效BMS响应")
                 state.bleChannelDetails?.let { DialogInfoRow("连接诊断", it) }
-                DialogInfoRow("操作模式", "安全只读")
+                DialogInfoRow("操作模式", "日常只读 · 管理员可写")
                 HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f))
                 DialogInfoRow("App 版本", "v${state.appUpdate.currentVersionName}（${state.appUpdate.currentVersionCode}）")
                 if (state.appUpdate.hasNewerVersion) {
@@ -304,6 +326,14 @@ private fun DeviceSettingsPage(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text("数据备份、恢复与导出")
+                }
+                Button(
+                    onClick = { showAdminParameters = true },
+                    enabled = !state.adminParameterWrite.inProgress,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.errorContainer)
+                ) {
+                    Text("管理员参数（高风险）", color = MaterialTheme.colorScheme.onErrorContainer)
                 }
                 HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f))
                 Text("高温紧急警报", fontWeight = FontWeight.Bold, fontSize = 13.sp)
@@ -422,6 +452,8 @@ private fun PreviewDashboard(initialTab: Int, openFullChargeStats: Boolean = fal
                 onRequestOverlayTemperaturePermission = {},
                 onTestCriticalTemperatureAlert = {},
                 onRefreshProtectionParams = {},
+                onWriteAdminParameters = { _, _ -> false },
+                onClearAdminWriteResult = {},
                 isPreview = true,
                 initialTab = initialTab,
                 openFullChargeStats = openFullChargeStats

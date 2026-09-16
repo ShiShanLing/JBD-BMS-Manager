@@ -36,6 +36,7 @@ import com.bms.jbdmanager.protocol.JbdFrameAssembler
 import com.bms.jbdmanager.report.BatteryHealthPdfGenerator
 import com.bms.jbdmanager.protocol.JbdMessage
 import com.bms.jbdmanager.protocol.JbdProtocol
+import com.bms.jbdmanager.protocol.JbdAdminParameters
 import com.bms.jbdmanager.storage.AppUpdateStore
 import com.bms.jbdmanager.storage.AutomaticCapacityTestStore
 import com.bms.jbdmanager.storage.BatteryTrendStore
@@ -125,6 +126,7 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
     private var preparedDataRestore: PreparedDataRestore? = null
     private var lastCapacityTestPersistAtMillis = 0L
     private var lastTripServiceStartAttemptAtMillis = 0L
+    private var pendingAdminVerification: Map<Int, Int>? = null
 
     init {
         TripTracker.initialize(application)
@@ -1272,6 +1274,40 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
         bleManager.readProtectionParameters()
     }
 
+    //MARK:写管理员参数
+    //writeAdminParameters 校验页面修改、编码寄存器并启动工厂模式事务；任何校验失败都会在发送蓝牙命令前终止。
+    fun writeAdminParameters(factoryPassword: String, changedValues: Map<Int, Double>): Boolean {
+        val params = _uiState.value.protectionParams ?: run {
+            _uiState.update {
+                it.copy(adminParameterWrite = com.bms.jbdmanager.model.AdminParameterWriteState(message = "请先读取当前保护参数", succeeded = false))
+            }
+            return false
+        }
+        val encoded = JbdAdminParameters.validateAndEncode(params, changedValues).getOrElse { error ->
+            _uiState.update {
+                it.copy(adminParameterWrite = com.bms.jbdmanager.model.AdminParameterWriteState(message = error.message ?: "参数校验失败", succeeded = false))
+            }
+            return false
+        }
+        pendingAdminVerification = null
+        _uiState.update {
+            it.copy(adminParameterWrite = com.bms.jbdmanager.model.AdminParameterWriteState(inProgress = true, message = "准备进入工厂模式"))
+        }
+        if (!bleManager.writeProtectionParameters(factoryPassword, encoded)) {
+            _uiState.update {
+                it.copy(adminParameterWrite = com.bms.jbdmanager.model.AdminParameterWriteState(message = "工厂密码格式错误或写入参数无效", succeeded = false))
+            }
+            return false
+        }
+        return true
+    }
+
+    //MARK:清除写入结果
+    //clearAdminWriteMessage 清除上一次管理员事务提示，不改变已经回读的保护参数。
+    fun clearAdminWriteMessage() = _uiState.update {
+        it.copy(adminParameterWrite = com.bms.jbdmanager.model.AdminParameterWriteState())
+    }
+
     //MARK:蓝牙状态
     //onBluetoothState 报告手机是否支持并已开启蓝牙，使上层决定是否自动扫描或连接。
     override fun onBluetoothState(supported: Boolean, enabled: Boolean) {
@@ -1417,10 +1453,14 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
                 connectedName = if (shouldReconnect) name else it.connectedName,
                 dataFreshness = DataFreshness.Stale,
                 gpsSpeed = if (preserveGpsSpeed) it.gpsSpeed else GpsSpeedState(),
-                errorMessage = reason
+                errorMessage = reason,
+                adminParameterWrite = if (it.adminParameterWrite.inProgress) {
+                    com.bms.jbdmanager.model.AdminParameterWriteState(message = "蓝牙已断开，参数写入未完成", succeeded = false)
+                } else it.adminParameterWrite
             )
         }
         if (shouldReconnect) address?.let(::scheduleReconnect)
+        pendingAdminVerification = null
         manualDisconnect = false
     }
 
@@ -1489,6 +1529,32 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
         }
     }
 
+    //MARK:管理员进度
+    //onAdminWriteProgress 把写入阶段同步到管理员页面，并保持按钮锁定直至回读结束。
+    override fun onAdminWriteProgress(message: String) {
+        _uiState.update {
+            it.copy(adminParameterWrite = com.bms.jbdmanager.model.AdminParameterWriteState(inProgress = true, message = message))
+        }
+    }
+
+    //MARK:管理员完成
+    //onAdminWriteCompleted 暂存期望原始值；最终成功必须等待同一事务的参数回读逐项一致。
+    override fun onAdminWriteCompleted(expectedRegisters: Map<Int, Int>) {
+        pendingAdminVerification = expectedRegisters
+        _uiState.update {
+            it.copy(adminParameterWrite = com.bms.jbdmanager.model.AdminParameterWriteState(inProgress = true, message = "正在核对回读结果"))
+        }
+    }
+
+    //MARK:管理员失败
+    //onAdminWriteFailed 结束页面加载状态并保留明确失败原因，提醒用户不要假设参数已经生效。
+    override fun onAdminWriteFailed(message: String) {
+        pendingAdminVerification = null
+        _uiState.update {
+            it.copy(adminParameterWrite = com.bms.jbdmanager.model.AdminParameterWriteState(message = message, succeeded = false))
+        }
+    }
+
     //MARK:处理报文
     //handleFrame 严格解码一帧 DD/77 数据，完成在途命令后按消息类型更新电池、单体或参数状态。
     private fun handleFrame(raw: ByteArray) {
@@ -1499,7 +1565,8 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
         }
         classicProtocolSeen = true
         publishProtocolDiagnosis()
-        bleManager.onProtocolResponse(frame.command, frame.status)
+        val consumedByAdminTransaction = bleManager.onProtocolResponse(frame.command, frame.status)
+        if (consumedByAdminTransaction) return
         val message = JbdProtocol.parse(frame).getOrElse { error ->
             if (frame.command == JbdProtocol.READ_PARAMETERS) {
                 _uiState.update {
@@ -1560,13 +1627,29 @@ class BmsViewModel(application: Application) : AndroidViewModel(application), Jb
                 _uiState.update { it.copy(chipType = message.value) }
             }
             is JbdMessage.ProtectionParams -> {
+                val expected = pendingAdminVerification
+                val verificationSucceeded = expected?.all { (register, value) ->
+                    message.value.rawRegisters[register] == value
+                }
                 _uiState.update {
                     it.copy(
                         protectionParams = message.value,
                         protectionParamsLoading = false,
-                        protectionParamsError = null
+                        protectionParamsError = null,
+                        adminParameterWrite = when {
+                            expected == null -> it.adminParameterWrite
+                            verificationSucceeded == true -> com.bms.jbdmanager.model.AdminParameterWriteState(
+                                message = "写入成功，${expected.size} 项参数已回读一致",
+                                succeeded = true
+                            )
+                            else -> com.bms.jbdmanager.model.AdminParameterWriteState(
+                                message = "写入后回读不一致，请勿按新参数继续使用并重新检查",
+                                succeeded = false
+                            )
+                        }
                     )
                 }
+                if (expected != null) pendingAdminVerification = null
             }
             is JbdMessage.Unsupported -> {
                 if (frame.command == JbdProtocol.READ_PARAMETERS) {

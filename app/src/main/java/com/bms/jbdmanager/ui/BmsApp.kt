@@ -265,6 +265,8 @@ fun BmsApp(
                     onRequestOverlayTemperaturePermission = requestOverlayTemperaturePermission,
                     onTestCriticalTemperatureAlert = viewModel::testCriticalTemperatureAlert,
                     onRefreshProtectionParams = viewModel::refreshProtectionParams,
+                    onWriteAdminParameters = viewModel::writeAdminParameters,
+                    onClearAdminWriteResult = viewModel::clearAdminWriteMessage,
                     onEnterPictureInPicture = enterPictureInPicture,
                     isPreview = previewMode,
                     onCyclePreviewScenario = {

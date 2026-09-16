@@ -70,6 +70,15 @@ interface JbdBleListener {
     //MARK:认证成功
     //onAuthenticationSucceeded 报告只读认证已经完成，并携带实际使用的认证协议名称。
     fun onAuthenticationSucceeded(profile: String)
+    //MARK:管理员进度
+    //onAdminWriteProgress 报告工厂模式参数事务的当前阶段，使页面明确知道正在写入、退出或回读。
+    fun onAdminWriteProgress(message: String)
+    //MARK:管理员完成
+    //onAdminWriteCompleted 报告写入命令已完成并携带期望寄存器值，供上层在回读解析后逐项核验。
+    fun onAdminWriteCompleted(expectedRegisters: Map<Int, Int>)
+    //MARK:管理员失败
+    //onAdminWriteFailed 报告管理员写入失败原因；管理器会尽力退出工厂模式并恢复普通轮询。
+    fun onAdminWriteFailed(message: String)
     //MARK:错误处理
     //onError 把无法自动恢复的蓝牙或协议错误转换为用户可见提示。
     fun onError(message: String)
@@ -102,6 +111,8 @@ class JbdBleManager(
     private var modernProbeAttempted = false
     private var modernAuthState = ModernAuthState.Idle
     private var modernPassword: String? = null
+    private var adminTransaction: AdminTransaction? = null
+    private var pollingBeforeAdmin = false
 
     //MARK:蓝牙认证状态
     //ModernAuthState 枚举认证状态的全部合法取值；新增状态时需要同步检查解析、存储和界面分支。
@@ -115,6 +126,23 @@ class JbdBleManager(
         Authenticated
     }
 
+    //MARK:管理员步骤
+    //AdminStep 标识管理员事务中的命令用途，避免同为 0xFA 的参数写入确认与最终回读响应混淆。
+    private sealed interface AdminStep {
+        data object Enter : AdminStep
+        data class Write(val register: Int) : AdminStep
+        data object Exit : AdminStep
+        data object Verify : AdminStep
+    }
+
+    //MARK:管理员事务
+    //AdminTransaction 保存待写寄存器、期望回读值和延迟失败原因，确保中途失败仍优先退出工厂模式。
+    private data class AdminTransaction(
+        val pendingWrites: ArrayDeque<Pair<Int, Int>>,
+        val expectedRegisters: Map<Int, Int>,
+        var failureMessage: String? = null
+    )
+
     //MARK:待发命令
     //PendingCommand 将命令相关字段组合为不可变值，避免跨层传递时出现部分字段不同步。
     private data class PendingCommand(
@@ -122,7 +150,8 @@ class JbdBleManager(
         val payload: ByteArray,
         val note: String,
         val retriesRemaining: Int = 1,
-        val authFrame: Boolean = false
+        val authFrame: Boolean = false,
+        val adminStep: AdminStep? = null
     )
 
     private val stopScanRunnable = Runnable { stopScan() }
@@ -273,6 +302,7 @@ class JbdBleManager(
                     deferredClassicResponse = null
                     deferredAuthFrame = null
                     when {
+                        classic != null && inFlight?.adminStep != null -> handleAdminResponse(inFlight!!.adminStep!!, classic.second)
                         classic != null -> handleClassicResponse(classic.first, classic.second)
                         auth != null -> handleAuthFrame(auth)
                         else -> handler.postDelayed(responseTimeoutRunnable, RESPONSE_TIMEOUT_MS)
@@ -499,14 +529,48 @@ class JbdBleManager(
 
     //MARK:协议回调
     //onProtocolResponse 把已解码的 DD/77 命令状态关联到当前在途命令，并结束对应响应等待。
-    fun onProtocolResponse(command: Int, status: Int) {
-        handler.post {
-            val current = inFlight ?: return@post
-            if (current.authFrame || current.command != command) return@post
-            handler.removeCallbacks(responseTimeoutRunnable)
-            if (waitingForWriteCallback) deferredClassicResponse = command to status
-            else handleClassicResponse(command, status)
+    fun onProtocolResponse(command: Int, status: Int): Boolean {
+        val current = inFlight ?: return false
+        if (current.authFrame || current.command != command) return false
+        handler.removeCallbacks(responseTimeoutRunnable)
+        val consumed = current.adminStep != null && current.adminStep != AdminStep.Verify
+        if (waitingForWriteCallback) deferredClassicResponse = command to status
+        else if (current.adminStep != null) handleAdminResponse(current.adminStep, status)
+        else handleClassicResponse(command, status)
+        return consumed
+    }
+
+    //MARK:写保护参数
+    //writeProtectionParameters 启动受控工厂模式事务；每次只写一个寄存器，退出后读取完整参数块进行校验。
+    fun writeProtectionParameters(factoryPassword: String, registerValues: Map<Int, Int>): Boolean {
+        val enterPayload = JbdProtocol.enterFactoryModeCommand(factoryPassword).getOrNull() ?: return false
+        if (registerValues.isEmpty() || registerValues.keys.any { it !in 0..27 } || registerValues.values.any { it !in 0..0xFFFF }) {
+            return false
         }
+        handler.post {
+            if (!setupFinished || adminTransaction != null) {
+                listener.onAdminWriteFailed("当前蓝牙未就绪，或已有参数写入正在进行")
+                return@post
+            }
+            pollingBeforeAdmin = polling
+            polling = false
+            handler.removeCallbacks(pollRunnable)
+            commandQueue.clear()
+            adminTransaction = AdminTransaction(ArrayDeque(registerValues.toSortedMap().map { it.key to it.value }), registerValues)
+            listener.onAdminWriteProgress("正在进入 BMS 工厂模式")
+            enqueueCommand(
+                PendingCommand(
+                    JbdProtocol.ENTER_FACTORY_MODE,
+                    enterPayload,
+                    "管理员：进入工厂模式",
+                    retriesRemaining = 0,
+                    adminStep = AdminStep.Enter
+                ),
+                first = true,
+                allowDuplicate = true
+            )
+        }
+        return true
     }
 
     //MARK:发送认证密码
@@ -534,11 +598,11 @@ class JbdBleManager(
 
     //MARK:命令入队
     //enqueueCommand 推进enqueueCommand的串行命令队列，确保一次只关联一个写入和响应。
-    private fun enqueueCommand(command: PendingCommand, first: Boolean = false) {
+    private fun enqueueCommand(command: PendingCommand, first: Boolean = false, allowDuplicate: Boolean = false) {
         if (!setupFinished) return
         if (authenticationBlocked && command.command != JbdProtocol.PASSWORD_PAIRING && !command.authFrame) return
         // 同一命令只保留一个实例，避免轮询速度大于蓝牙响应速度时队列无限增长。
-        if (inFlight?.command == command.command || commandQueue.any { it.command == command.command }) return
+        if (!allowDuplicate && (inFlight?.command == command.command || commandQueue.any { it.command == command.command })) return
         if (first) commandQueue.addFirst(command) else commandQueue.addLast(command)
         sendNextCommand()
     }
@@ -600,6 +664,10 @@ class JbdBleManager(
             handler.postDelayed(::sendNextCommand, RETRY_DELAY_MS)
         } else {
             listener.onCommandTimeout(current.command, "${current.note}：$reason")
+            if (current.adminStep != null) {
+                handleAdminCommandFailure("${current.note}：$reason", current.adminStep)
+                return
+            }
             if (!current.authFrame && current.command == JbdProtocol.BASIC_INFO && !modernProbeAttempted) {
                 // 经典 DD/77 基本信息无响应时仅探测一次新版 FF/AA 认证，避免普通模块被反复认证打扰。
                 modernProbeAttempted = true
@@ -616,6 +684,110 @@ class JbdBleManager(
             }
             sendNextCommand()
         }
+    }
+
+    //MARK:处理管理员响应
+    //handleAdminResponse 根据当前事务步骤推进写入；任何写入失败都会先尝试退出工厂模式，再向页面报告失败。
+    private fun handleAdminResponse(step: AdminStep, status: Int) {
+        val transaction = adminTransaction ?: return
+        if (status != 0) {
+            completeCurrentCommand(startNext = false)
+            handleAdminCommandFailure("BMS 拒绝操作，状态码 0x${status.toString(16).uppercase()}", step)
+            return
+        }
+        completeCurrentCommand(startNext = false)
+        when (step) {
+            AdminStep.Enter -> sendNextAdminWrite(transaction)
+            is AdminStep.Write -> sendNextAdminWrite(transaction)
+            AdminStep.Exit -> {
+                val failure = transaction.failureMessage
+                if (failure != null) finishAdminFailure(failure)
+                else {
+                    listener.onAdminWriteProgress("参数已写入，正在回读验证")
+                    // 在发送回读命令前先交付期望值，兼容 BMS 通知早于 Android 写回调到达的设备。
+                    listener.onAdminWriteCompleted(transaction.expectedRegisters)
+                    enqueueCommand(
+                        PendingCommand(
+                            JbdProtocol.READ_PARAMETERS,
+                            JbdProtocol.readParametersCommand(0, 30),
+                            "管理员：回读验证",
+                            adminStep = AdminStep.Verify
+                        ),
+                        first = true,
+                        allowDuplicate = true
+                    )
+                }
+            }
+            AdminStep.Verify -> {
+                adminTransaction = null
+                resumePollingAfterAdmin()
+            }
+        }
+    }
+
+    //MARK:发送下一项
+    //sendNextAdminWrite 从队列取出一个寄存器写入；全部完成后立即发送退出工厂模式命令。
+    private fun sendNextAdminWrite(transaction: AdminTransaction) {
+        val next = if (transaction.pendingWrites.isEmpty()) null else transaction.pendingWrites.removeFirst()
+        if (next == null) {
+            listener.onAdminWriteProgress("写入完成，正在退出工厂模式")
+            enqueueCommand(
+                PendingCommand(
+                    JbdProtocol.EXIT_FACTORY_MODE,
+                    JbdProtocol.exitFactoryModeCommand(),
+                    "管理员：退出工厂模式",
+                    retriesRemaining = 0,
+                    adminStep = AdminStep.Exit
+                ),
+                first = true,
+                allowDuplicate = true
+            )
+            return
+        }
+        listener.onAdminWriteProgress("正在写入寄存器 ${next.first}（剩余 ${transaction.pendingWrites.size} 项）")
+        enqueueCommand(
+            PendingCommand(
+                JbdProtocol.READ_PARAMETERS,
+                JbdProtocol.writeParametersCommand(next.first, listOf(next.second)),
+                "管理员：写入寄存器 ${next.first}",
+                retriesRemaining = 0,
+                adminStep = AdminStep.Write(next.first)
+            ),
+            first = true,
+            allowDuplicate = true
+        )
+    }
+
+    //MARK:管理员失败
+    //handleAdminCommandFailure 在进入失败时直接结束；写入阶段失败时先发送退出命令，避免保护板停留在工厂模式。
+    private fun handleAdminCommandFailure(message: String, step: AdminStep) {
+        val transaction = adminTransaction ?: return
+        if (step == AdminStep.Enter || step == AdminStep.Exit || step == AdminStep.Verify) {
+            finishAdminFailure(message)
+            return
+        }
+        transaction.failureMessage = message
+        transaction.pendingWrites.clear()
+        sendNextAdminWrite(transaction)
+    }
+
+    //MARK:结束管理员失败
+    //finishAdminFailure 清除事务、恢复原有轮询并把明确原因交给页面展示。
+    private fun finishAdminFailure(message: String) {
+        adminTransaction = null
+        resumePollingAfterAdmin()
+        listener.onAdminWriteFailed(message)
+    }
+
+    //MARK:恢复普通轮询
+    //resumePollingAfterAdmin 按写入前状态恢复每秒读取；断连期间不会重新启动任务。
+    private fun resumePollingAfterAdmin() {
+        if (pollingBeforeAdmin && setupFinished) {
+            polling = true
+            handler.removeCallbacks(pollRunnable)
+            handler.postDelayed(pollRunnable, 1_000)
+        }
+        pollingBeforeAdmin = false
     }
 
     //MARK:完成命令
@@ -770,7 +942,7 @@ class JbdBleManager(
         enqueueCommand(
             PendingCommand(
                 JbdProtocol.READ_PARAMETERS,
-                JbdProtocol.readParametersCommand(startRegister = 2, count = 24),
+                JbdProtocol.readParametersCommand(startRegister = 0, count = 30),
                 "读取保护参数"
             )
         )
@@ -813,6 +985,8 @@ class JbdBleManager(
         modernProbeAttempted = false
         modernAuthState = ModernAuthState.Idle
         modernPassword = null
+        adminTransaction = null
+        pollingBeforeAdmin = false
         writeCharacteristic = null
         notifyCharacteristic = null
     }

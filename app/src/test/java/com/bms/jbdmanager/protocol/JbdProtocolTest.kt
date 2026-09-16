@@ -20,6 +20,16 @@ class JbdProtocolTest {
     }
 
     @Test
+    //MARK:测试写入报文
+    //验证进入工厂模式、单寄存器写入和退出工厂模式均符合官方 V12 的 DD 5A 帧格式与校验规则。
+    fun writeCommandsMatchPublishedProtocol() {
+        assertEquals("DD 5A 00 02 56 78 FF 30 77", JbdProtocol.enterFactoryModeCommand("5678").getOrThrow().toHex())
+        assertEquals("DD 5A FA 05 00 14 01 0E 42 FE 9C 77", JbdProtocol.writeParametersCommand(20, listOf(3650)).toHex())
+        assertEquals("DD 5A 01 02 28 28 FF AD 77", JbdProtocol.exitFactoryModeCommand().toHex())
+        assertTrue(JbdProtocol.enterFactoryModeCommand("12G4").isFailure)
+    }
+
+    @Test
     //MARK:测试参数报文
     //验证解析官方读取保护参数示例能够按预期解析字段、单位和边界值。
     fun parsesOfficialReadParametersExample() {

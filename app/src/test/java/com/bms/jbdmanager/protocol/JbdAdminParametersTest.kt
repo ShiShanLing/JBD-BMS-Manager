@@ -1,0 +1,60 @@
+package com.bms.jbdmanager.protocol
+
+import com.bms.jbdmanager.model.JbdProtectionParams
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+//MARK:测试管理员参数
+//JbdAdminParametersTest 验证管理员白名单参数的单位换算、补码电流和成对保护关系。
+class JbdAdminParametersTest {
+    private val params = JbdProtectionParams(
+        cellOvervoltageV = 3.65,
+        cellOvervoltageReleaseV = 3.55,
+        cellUndervoltageV = 2.5,
+        cellUndervoltageReleaseV = 2.8,
+        packOvervoltageV = 62.05,
+        packOvervoltageReleaseV = 60.35,
+        packUndervoltageV = 42.5,
+        packUndervoltageReleaseV = 45.9,
+        chargeHighTempC = 55.0,
+        chargeHighTempReleaseC = 50.0,
+        chargeLowTempC = 0.0,
+        chargeLowTempReleaseC = 5.0,
+        dischargeHighTempC = 60.0,
+        dischargeHighTempReleaseC = 55.0,
+        dischargeLowTempC = -20.0,
+        dischargeLowTempReleaseC = -15.0
+    )
+
+    @Test
+    //MARK:测试单位编码
+    //验证电压、温度、容量和放电电流转换为协议原始值。
+    fun encodesWhitelistedValues() {
+        val encoded = JbdAdminParameters.validateAndEncode(
+            params,
+            mapOf(0 to 50.0, 20 to 3.60, 8 to 58.0, 25 to 120.0)
+        ).getOrThrow()
+        assertEquals(5000, encoded[0])
+        assertEquals(3600, encoded[20])
+        assertEquals(3311, encoded[8])
+        assertEquals(0xD120, encoded[25])
+    }
+
+    @Test
+    //MARK:测试关系校验
+    //验证过充恢复值高于保护值时在发送前被拒绝。
+    fun rejectsUnsafeThresholdRelationship() {
+        assertTrue(JbdAdminParameters.validateAndEncode(params, mapOf(21 to 3.70)).isFailure)
+    }
+
+    @Test
+    //MARK:测试大容量单位
+    //验证功能配置 bit12 开启后，容量和电流使用 0.1Ah/0.1A 单位而不是默认 0.01 单位。
+    fun encodesLargeCapacityUnit() {
+        val largeUnit = params.copy(rawRegisters = mapOf(29 to 0x1000))
+        val encoded = JbdAdminParameters.validateAndEncode(largeUnit, mapOf(0 to 500.0, 24 to 120.0)).getOrThrow()
+        assertEquals(5000, encoded[0])
+        assertEquals(1200, encoded[24])
+    }
+}

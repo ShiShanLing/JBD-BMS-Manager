@@ -50,6 +50,8 @@ object JbdProtocol {
     const val PASSWORD_PAIRING = 0x06
     const val CHIP_TYPE = 0x00
     const val READ_PARAMETERS = 0xFA
+    const val ENTER_FACTORY_MODE = 0x00
+    const val EXIT_FACTORY_MODE = 0x01
 
     //MARK:构造读令
     //readCommand 按目标协议构造readCommand，包含规定的帧头、长度、负载和校验字段。
@@ -77,6 +79,54 @@ object JbdProtocol {
         return readCommand(
             READ_PARAMETERS,
             byteArrayOf((startRegister shr 8).toByte(), startRegister.toByte(), count.toByte())
+        )
+    }
+
+    //MARK:工厂模式
+    //enterFactoryModeCommand 使用保护板工厂密码生成进入工厂模式命令；密码是四位十六进制数，不是六位蓝牙读取密码。
+    fun enterFactoryModeCommand(factoryPassword: String): Result<ByteArray> = runCatching {
+        require(factoryPassword.length == 4 && factoryPassword.all { it.isDigit() || it.uppercaseChar() in 'A'..'F' }) {
+            "工厂密码必须是4位十六进制数"
+        }
+        val password = factoryPassword.toInt(16)
+        writeCommand(ENTER_FACTORY_MODE, listOf(password))
+    }
+
+    //MARK:退出工厂
+    //exitFactoryModeCommand 发送协议规定的 0x2828 数据，确保参数写入结束后立即退出工厂模式。
+    fun exitFactoryModeCommand(): ByteArray = writeCommand(EXIT_FACTORY_MODE, listOf(0x2828))
+
+    //MARK:写入参数
+    //writeParametersCommand 按 V12 协议把连续寄存器编码为 0xFA 写命令；每个值严格限制为无符号16位。
+    fun writeParametersCommand(startRegister: Int, values: List<Int>): ByteArray {
+        require(startRegister in 0..255)
+        require(values.isNotEmpty() && values.size <= 95)
+        require(values.all { it in 0..0xFFFF })
+        val data = byteArrayOf(
+            (startRegister shr 8).toByte(),
+            startRegister.toByte(),
+            values.size.toByte(),
+            *values.flatMap { listOf((it shr 8).toByte(), it.toByte()) }.toByteArray()
+        )
+        return writeRequest(READ_PARAMETERS, data)
+    }
+
+    //MARK:构造写令
+    //writeCommand 把16位参数列表转换为大端数据并交给统一写帧构造器，供工厂模式控制命令复用。
+    private fun writeCommand(command: Int, values: List<Int>): ByteArray {
+        require(values.all { it in 0..0xFFFF })
+        val data = values.flatMap { listOf((it shr 8).toByte(), it.toByte()) }.toByteArray()
+        return writeRequest(command, data)
+    }
+
+    //MARK:构造写帧
+    //writeRequest 生成 DD 5A 写帧并计算命令字、长度和数据的16位二补数校验。
+    private fun writeRequest(command: Int, data: ByteArray): ByteArray {
+        require(data.size <= 255)
+        val checksum = checksumForRequest(command, data)
+        return byteArrayOf(
+            0xDD.toByte(), 0x5A.toByte(), command.toByte(), data.size.toByte(), *data,
+            (checksum shr 8).toByte(), checksum.toByte(), 0x77.toByte()
         )
     }
 
@@ -216,6 +266,10 @@ object JbdProtocol {
             if (index !in 0 until count) return null
             return data.u16(3 + index * 2)
         }
+        // 功能配置 bit12 会把容量和过流单位从 0.01 提升到 0.1；必须先读取寄存器29再解释相关字段。
+        val largeCapacityUnit = raw(29)?.and(0x1000)?.let { it != 0 } == true
+        val capacityScale = if (largeCapacityUnit) 0.1 else 0.01
+        val currentScale = if (largeCapacityUnit) 0.1 else 0.01
         //MARK:读取毫伏参数
         //读取以毫伏为单位的保护阈值，并换算成页面使用的伏特值。
         fun milliVolts(param: Int) = raw(param)?.div(1000.0)
@@ -227,15 +281,17 @@ object JbdProtocol {
         fun tempC(param: Int) = raw(param)?.minus(2731)?.div(10.0)
         //MARK:读取充电电流
         //读取以 0.01A 为单位的充电过流阈值并换算为安培。
-        fun chargeAmps(param: Int) = raw(param)?.times(0.01)
+        fun chargeAmps(param: Int) = raw(param)?.times(currentScale)
         //MARK:读取放电电流
         //读取放电过流阈值；兼容 16 位补码编码，并返回页面使用的正幅值安培数。
         fun dischargeAmps(param: Int) = raw(param)?.let { value ->
             // 放电保护电流可能按 16 位补码传输；界面只需要阈值大小，因此在这里转换为正幅值。
             val magnitude = if (value and 0x8000 != 0) 0x10000 - value else value
-            magnitude * 0.01
+            magnitude * currentScale
         }
         return JbdProtectionParams(
+            nominalCapacityAh = raw(0)?.times(capacityScale),
+            cycleCapacityAh = raw(1)?.times(capacityScale),
             fullChargeVoltageV = milliVolts(2),
             chargeHighTempC = tempC(8),
             chargeHighTempReleaseC = tempC(9),
@@ -254,7 +310,10 @@ object JbdProtocol {
             cellUndervoltageV = milliVolts(22),
             cellUndervoltageReleaseV = milliVolts(23),
             chargeOvercurrentA = chargeAmps(24),
-            dischargeOvercurrentA = dischargeAmps(25)
+            dischargeOvercurrentA = dischargeAmps(25),
+            balanceStartVoltageV = milliVolts(26),
+            balanceStartDeltaV = milliVolts(27),
+            rawRegisters = (start until start + count).associateWith { raw(it)!! }
         )
     }
 

@@ -52,7 +52,6 @@ fun BmsApp(
     var locationPermissionRequestedForConnection by rememberSaveable {
         androidx.compose.runtime.mutableStateOf(false)
     }
-    var showExitConfirmation by remember { androidx.compose.runtime.mutableStateOf(false) }
     var showMileageOnlyConfirmation by remember { androidx.compose.runtime.mutableStateOf(false) }
     var showBicycleConfirmation by remember { androidx.compose.runtime.mutableStateOf(false) }
     var mileageOnlyPermissionPending by rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
@@ -251,7 +250,7 @@ fun BmsApp(
                     onStartMileageOnlyTrip = { showMileageOnlyConfirmation = true },
                     onSubmitPassword = viewModel::submitBluetoothPassword,
                     onRequestLocationPermission = requestLocationPermission,
-                    onRequestExit = { showExitConfirmation = true },
+                    onRequestExit = exitApp,
                     onClearSpeedRangeStats = viewModel::clearSpeedRangeStats,
                     onAddCapacityHealthRecord = viewModel::addCapacityHealthRecord,
                     onDeleteCapacityHealthRecord = viewModel::deleteCapacityHealthRecord,
@@ -288,7 +287,7 @@ fun BmsApp(
                     } else {
                         null
                     },
-                    onRequestExit = { showExitConfirmation = true },
+                    onRequestExit = exitApp,
                     onShowAppVersion = { showAppVersion = true },
                     onShowDataManagement = { showDataManagement = true },
                     isPreview = previewMode
@@ -382,24 +381,6 @@ fun BmsApp(
             onDismiss = viewModel::dismissAppUpdate,
             onSkip = viewModel::skipAppUpdate,
             onUpdate = viewModel::startAppUpdateDownload
-        )
-    }
-    if (showExitConfirmation) {
-        AlertDialog(
-            onDismissRequest = { showExitConfirmation = false },
-            title = { Text("退出并停止全部？") },
-            text = { Text("将停止 GPS、结束行程、关闭常驻通知、取消自动重连并断开蓝牙。") },
-            dismissButton = {
-                TextButton(onClick = { showExitConfirmation = false }) { Text("取消") }
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        showExitConfirmation = false
-                        exitApp()
-                    }
-                ) { Text("退出全部", color = MaterialTheme.colorScheme.error) }
-            }
         )
     }
     if (showMileageOnlyConfirmation) {

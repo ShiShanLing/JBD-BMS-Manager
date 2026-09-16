@@ -52,7 +52,6 @@ internal fun BicycleTripScreen(
     onSetBodyWeight: (Double) -> Unit,
     onEnterPictureInPicture: () -> Unit
 ) {
-    var showFinishConfirmation by remember { mutableStateOf(false) }
     var showWeightDialog by remember { mutableStateOf(false) }
     var nowMillis by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(state.trip.startedAtMillis) {
@@ -61,7 +60,8 @@ internal fun BicycleTripScreen(
             delay(1_000L)
         }
     }
-    BackHandler { showFinishConfirmation = true }
+    // 用户主动返回即视为结束本段骑行；先归档再离开页面，不再增加一次确认操作。
+    BackHandler { onFinish() }
     val bicycleHistory = state.mileageHistory.forCategory(TripCategory.Bicycle)
     // 每次重新开始骑行时本次热量会从零累计；页面主卡片需要合并今天已经归档的骑行和当前活动行程。
     val todayBicycleSummary = bicycleHistory.periodSummary(MileagePeriod.Day)
@@ -133,20 +133,11 @@ internal fun BicycleTripScreen(
                 modifier = Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 12.dp)
             )
         }
-        Button(onClick = { showFinishConfirmation = true }, modifier = Modifier.fillMaxWidth().height(50.dp)) {
-            Text("结束并保存骑行", fontWeight = FontWeight.SemiBold)
+        Button(onClick = onFinish, modifier = Modifier.fillMaxWidth().height(50.dp)) {
+            Text("保存并退出", fontWeight = FontWeight.SemiBold)
         }
     }
 
-    if (showFinishConfirmation) {
-        AlertDialog(
-            onDismissRequest = { showFinishConfirmation = false },
-            title = { Text("结束本次自行车骑行？") },
-            text = { Text("里程、有效骑行时间和估算热量会保存到自行车历史。") },
-            dismissButton = { TextButton(onClick = { showFinishConfirmation = false }) { Text("继续骑行") } },
-            confirmButton = { TextButton(onClick = { showFinishConfirmation = false; onFinish() }) { Text("结束并保存") } }
-        )
-    }
     if (showWeightDialog) {
         var weight by remember(state.trip.bicycleBodyWeightKg) { mutableStateOf(state.trip.bicycleBodyWeightKg.toInt()) }
         AlertDialog(

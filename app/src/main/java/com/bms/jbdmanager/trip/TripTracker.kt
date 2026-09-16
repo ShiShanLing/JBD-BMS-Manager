@@ -19,6 +19,7 @@ import kotlinx.coroutines.flow.asStateFlow
 //TripTracker 提供进程内共享的行程能力，并集中维护其状态、常量或纯计算入口。
 object TripTracker {
     private const val MAX_BMS_SAMPLE_GAP_MS = 15_000L
+    private const val LOCATION_PERSIST_INTERVAL_MS = 60_000L
 
     private val _state = MutableStateFlow(TripState())
     val state: StateFlow<TripState> = _state.asStateFlow()
@@ -275,8 +276,8 @@ object TripTracker {
             rangeTest = updatedTest,
             speedRangeStats = speedRangeStats
         )
-        // GPS 可能每秒多次回调；界面仍实时更新，但持久化限流到每秒一次以减少闪存写入。
-        if (timestampMillis - lastLocationPersistAtMillis >= 1_000L) {
+        // GPS 回调只负责实时更新内存状态；活动行程每分钟落盘一次，开始、设置变化和结束时仍会立即保存。
+        if (timestampMillis - lastLocationPersistAtMillis >= LOCATION_PERSIST_INTERVAL_MS) {
             lastLocationPersistAtMillis = timestampMillis
             persist()
         }

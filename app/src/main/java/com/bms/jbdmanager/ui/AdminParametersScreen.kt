@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardOptions
@@ -31,7 +32,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -58,21 +58,19 @@ internal fun AdminParametersPage(
     var factoryPassword by remember { mutableStateOf("5678") }
     var acceptedRisk by rememberSaveable { mutableStateOf(false) }
     var showConfirmation by remember { mutableStateOf(false) }
-    var edits: Map<Int, String> by remember(params) {
+    var confirmationText by remember { mutableStateOf("") }
+    var edits: Map<Int, Double> by remember(params) {
         mutableStateOf(
-            if (params == null) emptyMap<Int, String>() else JbdAdminParameters.specs.associate { spec ->
-                spec.register to (JbdAdminParameters.value(params, spec.register)?.let { formatAdminValue(it, spec.decimals) } ?: "")
-            }
+            if (params == null) emptyMap<Int, Double>() else JbdAdminParameters.specs.mapNotNull { spec ->
+                JbdAdminParameters.value(params, spec.register)?.let { spec.register to it }
+            }.toMap()
         )
     }
     val parsedChanges: Map<Int, Double> = if (params == null) emptyMap() else JbdAdminParameters.specs.mapNotNull { spec ->
-        val parsed = edits[spec.register]?.toDoubleOrNull() ?: return@mapNotNull null
+        val parsed = edits[spec.register] ?: return@mapNotNull null
         val original = JbdAdminParameters.value(params, spec.register) ?: return@mapNotNull null
         if (abs(parsed - original) > 0.000_000_1) spec.register to parsed else null
     }.toMap()
-    val invalidInput = params != null && JbdAdminParameters.specs.any { spec ->
-        JbdAdminParameters.value(params, spec.register) != null && edits[spec.register]?.toDoubleOrNull() == null
-    }
 
     LaunchedEffect(state.adminParameterWrite.succeeded) {
         if (state.adminParameterWrite.succeeded == true) acceptedRisk = false
@@ -119,8 +117,12 @@ internal fun AdminParametersPage(
                 JbdAdminParameters.specs.groupBy { it.group }.forEach { (group, specs) ->
                     item { Text(group, fontWeight = FontWeight.Bold, fontSize = 14.sp, modifier = Modifier.padding(top = 5.dp)) }
                     items(specs, key = { it.register }) { spec ->
-                        AdminParameterField(spec, edits[spec.register].orEmpty()) { value ->
-                            edits = edits + (spec.register to value.filter { it.isDigit() || it == '.' || it == '-' })
+                        AdminParameterField(
+                            spec = spec,
+                            value = edits[spec.register] ?: JbdAdminParameters.value(params, spec.register) ?: spec.minimum,
+                            enabled = !state.adminParameterWrite.inProgress
+                        ) { value ->
+                            edits = edits + (spec.register to value)
                             onClearResult()
                         }
                     }
@@ -160,14 +162,17 @@ internal fun AdminParametersPage(
                 }
                 item {
                     Button(
-                        onClick = { showConfirmation = true },
-                        enabled = acceptedRisk && factoryPassword.length == 4 && parsedChanges.isNotEmpty() && !invalidInput && !state.adminParameterWrite.inProgress,
+                        onClick = {
+                            confirmationText = ""
+                            showConfirmation = true
+                        },
+                        enabled = acceptedRisk && factoryPassword.length == 4 && parsedChanges.isNotEmpty() && !state.adminParameterWrite.inProgress,
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         if (state.adminParameterWrite.inProgress) {
                             CircularProgressIndicator(modifier = Modifier.padding(end = 8.dp).size(18.dp), strokeWidth = 2.dp)
                         }
-                        Text(if (state.adminParameterWrite.inProgress) "正在安全写入" else "写入 ${parsedChanges.size} 项修改")
+                        Text(if (state.adminParameterWrite.inProgress) "正在安全保存" else "保存 ${parsedChanges.size} 项修改")
                     }
                 }
             }
@@ -176,34 +181,86 @@ internal fun AdminParametersPage(
 
     if (showConfirmation) {
         AlertDialog(
-            onDismissRequest = { showConfirmation = false },
-            title = { Text("最后确认写入") },
-            text = { Text("将进入 BMS 工厂模式并修改 ${parsedChanges.size} 项参数。写入完成后 App 会退出工厂模式并回读校验。过程中不要断开蓝牙、关闭 App、充电或骑行。") },
-            confirmButton = {
-                Button(onClick = {
-                    showConfirmation = false
-                    onWrite(factoryPassword, parsedChanges)
-                }) { Text("确认写入") }
+            onDismissRequest = {
+                confirmationText = ""
+                showConfirmation = false
             },
-            dismissButton = { TextButton(onClick = { showConfirmation = false }) { Text("取消") } }
+            title = { Text("最后确认保存") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("将进入 BMS 工厂模式并修改 ${parsedChanges.size} 项参数。保存后 App 会退出工厂模式并回读校验。过程中不要断开蓝牙、关闭 App、充电或骑行。")
+                    Text("请输入“确认修改”后才能保存：", fontWeight = FontWeight.Bold)
+                    OutlinedTextField(
+                        value = confirmationText,
+                        onValueChange = { confirmationText = it.take(4) },
+                        label = { Text("确认文字") },
+                        placeholder = { Text("确认修改") },
+                        supportingText = { Text("必须完整输入：确认修改") },
+                        singleLine = true,
+                        enabled = !state.adminParameterWrite.inProgress,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        confirmationText = ""
+                        showConfirmation = false
+                        onWrite(factoryPassword, parsedChanges)
+                    },
+                    enabled = confirmationText == "确认修改" && !state.adminParameterWrite.inProgress
+                ) { Text("确认保存") }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    confirmationText = ""
+                    showConfirmation = false
+                }) { Text("取消") }
+            }
         )
     }
 }
 
 @Composable
-//MARK:管理员输入项
-//AdminParameterField 展示单个白名单参数的当前可编辑值、单位和允许范围。
-private fun AdminParameterField(spec: JbdAdminParameterSpec, value: String, onValueChange: (String) -> Unit) {
-    OutlinedTextField(
-        value = value,
-        onValueChange = onValueChange,
-        label = { Text(spec.label) },
-        suffix = { Text(spec.unit) },
-        supportingText = { Text("允许 ${formatAdminValue(spec.minimum, spec.decimals)}–${formatAdminValue(spec.maximum, spec.decimals)} ${spec.unit} · 寄存器 ${spec.register}") },
-        singleLine = true,
-        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+//MARK:参数调节项
+//AdminParameterField 展示单个白名单参数的当前值、单位和允许范围，并只允许通过固定步长按钮进行调节。
+private fun AdminParameterField(spec: JbdAdminParameterSpec, value: Double, enabled: Boolean, onValueChange: (Double) -> Unit) {
+    Surface(
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.surfaceVariant,
         modifier = Modifier.fillMaxWidth()
-    )
+    ) {
+        Column(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(spec.label, fontWeight = FontWeight.Medium, fontSize = 13.sp)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                OutlinedButton(
+                    onClick = { onValueChange(JbdAdminParameters.adjustedValue(spec, value, -1)) },
+                    enabled = enabled && value > spec.minimum,
+                    modifier = Modifier.width(72.dp)
+                ) { Text("−", fontSize = 22.sp) }
+                Text(
+                    "${formatAdminValue(value, spec.decimals)} ${spec.unit}",
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                OutlinedButton(
+                    onClick = { onValueChange(JbdAdminParameters.adjustedValue(spec, value, 1)) },
+                    enabled = enabled && value < spec.maximum,
+                    modifier = Modifier.width(72.dp)
+                ) { Text("+", fontSize = 22.sp) }
+            }
+            Text(
+                "每次 ${formatAdminValue(spec.step, spec.decimals)} ${spec.unit} · 允许 ${formatAdminValue(spec.minimum, spec.decimals)}–${formatAdminValue(spec.maximum, spec.decimals)} ${spec.unit}",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 11.sp
+            )
+        }
+    }
 }
 
 //MARK:格式化管理员值

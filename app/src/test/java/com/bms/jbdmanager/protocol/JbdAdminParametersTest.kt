@@ -57,4 +57,23 @@ class JbdAdminParametersTest {
         assertEquals(5000, encoded[0])
         assertEquals(1200, encoded[24])
     }
+
+    @Test
+    //MARK:测试按钮步长
+    //验证加减按钮按字段步长精确调节，并消除 Double 连续运算产生的显示尾差。
+    fun adjustsValueByConfiguredStep() {
+        val cellVoltage = JbdAdminParameters.specs.first { it.register == 20 }
+        assertEquals(3.605, JbdAdminParameters.adjustedValue(cellVoltage, 3.600, 1), 0.0)
+        assertEquals(3.595, JbdAdminParameters.adjustedValue(cellVoltage, 3.600, -1), 0.0)
+    }
+
+    @Test
+    //MARK:测试按钮边界
+    //验证参数达到安全范围边界后不会因继续点击加减按钮而越界。
+    fun clampsAdjustedValueToSafeRange() {
+        val balanceDelta = JbdAdminParameters.specs.first { it.register == 27 }
+        assertEquals(balanceDelta.minimum, JbdAdminParameters.adjustedValue(balanceDelta, balanceDelta.minimum, -1), 0.0)
+        assertEquals(balanceDelta.maximum, JbdAdminParameters.adjustedValue(balanceDelta, balanceDelta.maximum, 1), 0.0)
+        assertTrue(runCatching { JbdAdminParameters.adjustedValue(balanceDelta, 0.020, 0) }.isFailure)
+    }
 }

@@ -1,39 +1,58 @@
 package com.bms.jbdmanager.protocol
 
 import com.bms.jbdmanager.model.JbdProtectionParams
+import kotlin.math.pow
+import kotlin.math.round
 import kotlin.math.roundToInt
 
 //MARK:参数定义
-//JbdAdminParameterSpec 描述一个允许修改的安全参数；寄存器范围之外的底层校准项不会出现在管理员页面。
-data class JbdAdminParameterSpec(val register: Int, val group: String, val label: String, val unit: String, val minimum: Double, val maximum: Double, val decimals: Int)
+//JbdAdminParameterSpec 描述一个允许修改的安全参数及其按钮步长；寄存器范围之外的底层校准项不会出现在管理员页面。
+data class JbdAdminParameterSpec(
+    val register: Int,
+    val group: String,
+    val label: String,
+    val unit: String,
+    val minimum: Double,
+    val maximum: Double,
+    val decimals: Int,
+    val step: Double
+)
 
 //MARK:参数编解码
 //JbdAdminParameters 集中维护管理员页面的白名单、单位换算和成对阈值校验，防止界面直接拼装危险寄存器值。
 object JbdAdminParameters {
     val specs = listOf(
-        JbdAdminParameterSpec(0, "容量与均衡", "标称容量", "Ah", 1.0, 650.0, 2),
-        JbdAdminParameterSpec(2, "容量与均衡", "充满单体电压", "V", 2.5, 4.5, 3),
-        JbdAdminParameterSpec(26, "容量与均衡", "均衡启动电压", "V", 2.0, 4.5, 3),
-        JbdAdminParameterSpec(27, "容量与均衡", "均衡启动压差", "V", 0.001, 0.200, 3),
-        JbdAdminParameterSpec(20, "单体电压", "过充保护", "V", 2.5, 4.5, 3),
-        JbdAdminParameterSpec(21, "单体电压", "过充恢复", "V", 2.5, 4.5, 3),
-        JbdAdminParameterSpec(22, "单体电压", "欠压保护", "V", 1.5, 3.6, 3),
-        JbdAdminParameterSpec(23, "单体电压", "欠压恢复", "V", 1.5, 3.8, 3),
-        JbdAdminParameterSpec(16, "整包电压", "过压保护", "V", 10.0, 120.0, 2),
-        JbdAdminParameterSpec(17, "整包电压", "过压恢复", "V", 10.0, 120.0, 2),
-        JbdAdminParameterSpec(18, "整包电压", "欠压保护", "V", 10.0, 120.0, 2),
-        JbdAdminParameterSpec(19, "整包电压", "欠压恢复", "V", 10.0, 120.0, 2),
-        JbdAdminParameterSpec(24, "过流", "充电过流", "A", 0.1, 300.0, 1),
-        JbdAdminParameterSpec(25, "过流", "放电过流", "A", 0.1, 500.0, 1),
-        JbdAdminParameterSpec(8, "充电温度", "高温保护", "℃", -40.0, 120.0, 1),
-        JbdAdminParameterSpec(9, "充电温度", "高温恢复", "℃", -40.0, 120.0, 1),
-        JbdAdminParameterSpec(10, "充电温度", "低温保护", "℃", -40.0, 60.0, 1),
-        JbdAdminParameterSpec(11, "充电温度", "低温恢复", "℃", -40.0, 60.0, 1),
-        JbdAdminParameterSpec(12, "放电温度", "高温保护", "℃", -40.0, 120.0, 1),
-        JbdAdminParameterSpec(13, "放电温度", "高温恢复", "℃", -40.0, 120.0, 1),
-        JbdAdminParameterSpec(14, "放电温度", "低温保护", "℃", -40.0, 60.0, 1),
-        JbdAdminParameterSpec(15, "放电温度", "低温恢复", "℃", -40.0, 60.0, 1)
+        JbdAdminParameterSpec(0, "容量与均衡", "标称容量", "Ah", 1.0, 650.0, 2, 0.1),
+        JbdAdminParameterSpec(2, "容量与均衡", "充满单体电压", "V", 2.5, 4.5, 3, 0.005),
+        JbdAdminParameterSpec(26, "容量与均衡", "均衡启动电压", "V", 2.0, 4.5, 3, 0.005),
+        JbdAdminParameterSpec(27, "容量与均衡", "均衡启动压差", "V", 0.001, 0.200, 3, 0.001),
+        JbdAdminParameterSpec(20, "单体电压", "过充保护", "V", 2.5, 4.5, 3, 0.005),
+        JbdAdminParameterSpec(21, "单体电压", "过充恢复", "V", 2.5, 4.5, 3, 0.005),
+        JbdAdminParameterSpec(22, "单体电压", "欠压保护", "V", 1.5, 3.6, 3, 0.005),
+        JbdAdminParameterSpec(23, "单体电压", "欠压恢复", "V", 1.5, 3.8, 3, 0.005),
+        JbdAdminParameterSpec(16, "整包电压", "过压保护", "V", 10.0, 120.0, 2, 0.1),
+        JbdAdminParameterSpec(17, "整包电压", "过压恢复", "V", 10.0, 120.0, 2, 0.1),
+        JbdAdminParameterSpec(18, "整包电压", "欠压保护", "V", 10.0, 120.0, 2, 0.1),
+        JbdAdminParameterSpec(19, "整包电压", "欠压恢复", "V", 10.0, 120.0, 2, 0.1),
+        JbdAdminParameterSpec(24, "过流", "充电过流", "A", 0.1, 300.0, 1, 1.0),
+        JbdAdminParameterSpec(25, "过流", "放电过流", "A", 0.1, 500.0, 1, 1.0),
+        JbdAdminParameterSpec(8, "充电温度", "高温保护", "℃", -40.0, 120.0, 1, 1.0),
+        JbdAdminParameterSpec(9, "充电温度", "高温恢复", "℃", -40.0, 120.0, 1, 1.0),
+        JbdAdminParameterSpec(10, "充电温度", "低温保护", "℃", -40.0, 60.0, 1, 1.0),
+        JbdAdminParameterSpec(11, "充电温度", "低温恢复", "℃", -40.0, 60.0, 1, 1.0),
+        JbdAdminParameterSpec(12, "放电温度", "高温保护", "℃", -40.0, 120.0, 1, 1.0),
+        JbdAdminParameterSpec(13, "放电温度", "高温恢复", "℃", -40.0, 120.0, 1, 1.0),
+        JbdAdminParameterSpec(14, "放电温度", "低温保护", "℃", -40.0, 60.0, 1, 1.0),
+        JbdAdminParameterSpec(15, "放电温度", "低温恢复", "℃", -40.0, 60.0, 1, 1.0)
     )
+
+    //MARK:按钮调节
+    //adjustedValue 按字段规定的固定步长增减参数，对结果按协议精度取整，并在安全范围边界处停止。
+    fun adjustedValue(spec: JbdAdminParameterSpec, current: Double, direction: Int): Double {
+        require(direction == -1 || direction == 1) { "调节方向只能为 -1 或 1" }
+        val scale = 10.0.pow(spec.decimals)
+        return (round((current + spec.step * direction) * scale) / scale).coerceIn(spec.minimum, spec.maximum)
+    }
 
     //MARK:读取页面值
     //value 从已解析保护参数取得页面值；没有被本次参数块覆盖时返回空值并禁止用户盲写。
